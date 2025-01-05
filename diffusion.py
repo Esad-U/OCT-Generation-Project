@@ -400,7 +400,7 @@ def vis_main():
     
     # Load dataset
     dataset = ComplexFourierDataset(
-        root_dir='/mnt/storage1/esad/data/HILAL_OCT/organized',  # Update with your data path
+        root_dir='/mnt/storage1/esad/data/HILAL_OCT/test',  # Update with your data path
         image_size=128
     )
     
@@ -445,7 +445,7 @@ def main():
     
     # Setup data
     dataset = ComplexFourierDataset(
-        root_dir='/mnt/storage1/esad/data/HILAL_OCT/organized',  # Update with your data path
+        root_dir='/mnt/storage1/esad/data/HILAL_OCT/train',  # Update with your data path
         image_size=IMAGE_SIZE
     )
     train_loader = DataLoader(
