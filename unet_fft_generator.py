@@ -339,8 +339,8 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
-            odd_frames = odd_frames.to(device)  # Shape: (B, 10, 2, H, W)
-            even_frames = even_frames.to(device)  # Shape: (B, 9, 2, H, W)
+            odd_frames = odd_frames.to(device)  # (B, 10, 2, H, W)
+            even_frames = even_frames.to(device)  # (B, 9, 2, H, W)
             
             batch_size = odd_frames.shape[0]
             optimizer.zero_grad()
@@ -352,7 +352,6 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
                 if t < even_frames.shape[1] - 1:
                     condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                 else:
-                    # TODO: Ambiguity here. The original code used odd_frames[:, t] twice.
                     condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                 
                 # Create time tensor (normalized to [0, 1])
