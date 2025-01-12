@@ -258,6 +258,249 @@ class SelfAttention(nn.Module):
         attention_value = self.ff_self(attention_value) + attention_value
         return attention_value.swapaxes(2, 1).view(-1, self.channels, size[0], size[1])
 
+class InterpolationUNet(nn.Module):
+    def __init__(self, input_channels, hidden_channels):
+        super().__init__()
+        
+        # Input is two surrounding frames concatenated
+        self.input_channels = input_channels * 4  # *2 for two frames, *2 for complex input
+        
+        # Encoder
+        self.inc = self._double_conv(self.input_channels, hidden_channels)
+        self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
+        self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
+        self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
+        
+        # Bridge with attention
+        self.bridge = nn.Sequential(
+            self._double_conv(hidden_channels * 8, hidden_channels * 8),
+            SelfAttention(hidden_channels * 8)
+        )
+        
+        # Decoder
+        self.up3 = nn.ConvTranspose2d(hidden_channels * 8, hidden_channels * 4, kernel_size=2, stride=2)
+        self.conv_up3 = self._double_conv(hidden_channels * 8, hidden_channels * 4)
+        
+        self.up2 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 2, kernel_size=2, stride=2)
+        self.conv_up2 = self._double_conv(hidden_channels * 4, hidden_channels * 2)
+        
+        self.up1 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2, stride=2)
+        self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)
+        
+        # Output layer (2 channels for complex output)
+        self.outc = nn.Conv2d(hidden_channels, input_channels * 2, kernel_size=1)
+        
+    def _double_conv(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+    
+    def _down_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.MaxPool2d(2),
+            self._double_conv(in_channels, out_channels)
+        )
+    
+    def forward(self, frame1, frame2):
+        # Concatenate input frames
+        x = torch.cat([frame1, frame2], dim=1)
+        
+        # Encoder
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        
+        # Bridge
+        x4 = self.bridge(x4)
+        
+        # Decoder with skip connections
+        x = self.up3(x4)
+        x = self.conv_up3(torch.cat([x, x3], dim=1))
+        
+        x = self.up2(x)
+        x = self.conv_up2(torch.cat([x, x2], dim=1))
+        
+        x = self.up1(x)
+        x = self.conv_up1(torch.cat([x, x1], dim=1))
+        
+        return self.outc(x)
+
+
+# TODO: Experiment on diffusion model
+class DiffusionInterpolator(nn.Module):
+    def __init__(self, input_channels, hidden_channels, timesteps=1000):
+        super().__init__()
+        self.timesteps = timesteps
+        self.input_channels = input_channels * 2  # *2 for complex input
+        
+        # Beta schedule
+        self.beta = torch.linspace(1e-4, 0.02, timesteps)
+        self.alpha = 1. - self.beta
+        self.alpha_bar = torch.cumprod(self.alpha, dim=0)
+        
+        # Time embedding
+        time_embed_dim = hidden_channels * 4
+        self.time_mlp = nn.Sequential(
+            SinusoidalPositionEmbeddings(hidden_channels),
+            nn.Linear(hidden_channels, time_embed_dim),
+            nn.GELU(),
+            nn.Linear(time_embed_dim, time_embed_dim),
+        )
+        
+        # U-Net
+        self.inc = self._double_conv(self.input_channels * 2 + time_embed_dim, hidden_channels)  # *2 for condition
+        self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
+        self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
+        self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
+        
+        self.bridge = nn.Sequential(
+            self._double_conv(hidden_channels * 8, hidden_channels * 8),
+            SelfAttention(hidden_channels * 8)
+        )
+        
+        self.up3 = nn.ConvTranspose2d(hidden_channels * 8, hidden_channels * 4, kernel_size=2, stride=2)
+        self.conv_up3 = self._double_conv(hidden_channels * 8, hidden_channels * 4)
+        
+        self.up2 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 2, kernel_size=2, stride=2)
+        self.conv_up2 = self._double_conv(hidden_channels * 4, hidden_channels * 2)
+        
+        self.up1 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2, stride=2)
+        self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)
+        
+        self.outc = nn.Conv2d(hidden_channels, self.input_channels, kernel_size=1)
+    
+    def _double_conv(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.GroupNorm(8, out_channels),
+            nn.GELU(),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.GroupNorm(8, out_channels),
+            nn.GELU(),
+        )
+    
+    def _down_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.MaxPool2d(2),
+            self._double_conv(in_channels, out_channels)
+        )
+    
+    def get_noisy_image(self, x, t):
+        # Add noise to image according to diffusion schedule
+        a = self.alpha_bar[t][:, None, None, None]
+        noise = torch.randn_like(x)
+        return torch.sqrt(a) * x + torch.sqrt(1 - a) * noise, noise
+    
+    def forward(self, x, condition, t):
+        # Time embedding
+        t = self.time_mlp(t)
+        t = t.view(-1, t.shape[-1], 1, 1).expand(-1, -1, x.shape[-2], x.shape[-1])
+        
+        # Concatenate input and condition
+        x = torch.cat([x, condition, t], dim=1)
+        
+        # U-Net forward pass
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        
+        x4 = self.bridge(x4)
+        
+        x = self.up3(x4)
+        x = self.conv_up3(torch.cat([x, x3], dim=1))
+        
+        x = self.up2(x)
+        x = self.conv_up2(torch.cat([x, x2], dim=1))
+        
+        x = self.up1(x)
+        x = self.conv_up1(torch.cat([x, x1], dim=1))
+        
+        return self.outc(x)
+
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, time):
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = np.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = time[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        return embeddings
+
+def train_diffusion(model, train_loader, optimizer, device, num_epochs, log_interval=10):
+    model.train()
+    
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
+            odd_frames = odd_frames.to(device)
+            even_frames = even_frames.to(device)
+            
+            optimizer.zero_grad()
+            batch_size = odd_frames.shape[0]
+            
+            total_loss = 0
+            for t in range(even_frames.shape[1]):
+                # Get surrounding frames as condition
+                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                
+                # Sample timestep
+                timesteps = torch.randint(0, model.timesteps, (batch_size,), device=device).long()
+                
+                # Add noise to target frame
+                noisy_frame, noise = model.get_noisy_image(even_frames[:, t], timesteps)
+                
+                # Predict noise
+                noise_pred = model(noisy_frame, condition, timesteps)
+                
+                # Calculate loss
+                loss = nn.MSELoss()(noise_pred, noise)
+                total_loss += loss
+            
+            avg_loss = total_loss / even_frames.shape[1]
+            avg_loss.backward()
+            optimizer.step()
+            
+            epoch_loss += avg_loss.item()
+            
+            if batch_idx % log_interval == 0:
+                print(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                      f'Loss: {avg_loss.item():.6f}')
+
+@torch.no_grad()
+def sample_diffusion(model, condition, device, shape):
+    # Sample from the diffusion model
+    x = torch.randn(shape).to(device)
+    
+    for t in reversed(range(model.timesteps)):
+        timesteps = torch.full((shape[0],), t, device=device, dtype=torch.long)
+        predicted_noise = model(x, condition, timesteps)
+        
+        alpha = model.alpha[t]
+        alpha_bar = model.alpha_bar[t]
+        beta = model.beta[t]
+        
+        if t > 0:
+            noise = torch.randn_like(x)
+        else:
+            noise = torch.zeros_like(x)
+            
+        x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_bar))) * predicted_noise) + \
+            torch.sqrt(beta) * noise
+            
+    return x
+
 def reconstruct_image(magnitude, phase):
     """Reconstruct image from magnitude and phase"""
     # Denormalize magnitude and phase
@@ -334,6 +577,8 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
             
         recon_orig_even = reconstruct_image(original_even[t, 0], original_even[t, 1])
         recon_gen_even = reconstruct_image(generated_even[t, 0], generated_even[t, 1])
+        # A trick to reconstruct the even frames using the odd frames
+        # recon_gen_even = reconstruct_image(generated_even[t, 0], (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
         
         axes[1, t].imshow(recon_orig_even, cmap='gray')
         axes[2, t].imshow(recon_gen_even, cmap='gray')
@@ -405,7 +650,7 @@ def visualize_dataset_sample(dataset, sample_idx=0, save_path=None):
     
     plt.show()
 
-def visualize_model_predictions(model, dataset, device, sample_idx=0, save_dir='predictions'):
+def visualize_model_predictions(model, dataset, device, method, sample_idx=0, save_dir='predictions'):
     """
     Generate and visualize model predictions for a single sample.
     """
@@ -423,20 +668,25 @@ def visualize_model_predictions(model, dataset, device, sample_idx=0, save_dir='
         # Generate each even frame
         for t in range(original_even_frames.shape[1]):
             # Get surrounding odd frames as condition
-            if t < original_even_frames.shape[1] - 1:
-                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-            else:
-                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-            
-            # Create time tensor
-            time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
-            
-            noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
-            # noise = torch.rand(original_even_frames[:, t].shape).to(device)
-            # noise = original_even_frames[:, t]
+            if method == 'unet':
+                if t < original_even_frames.shape[1] - 1:
+                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                else:
+                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                
+                # Create time tensor
+                time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
+                
+                noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+                # noise = torch.rand(original_even_frames[:, t].shape).to(device)
+                # noise = original_even_frames[:, t]
 
-            # Generate even frame
-            generated = model(noise, condition, time)
+                # Generate even frame
+                generated = model(noise, condition, time)
+            elif method == 'interpolation':
+                frame1 = odd_frames[:, t]
+                frame2 = odd_frames[:, t+1]
+                generated = model(frame1, frame2)
             generated_frames.append(generated.cpu().squeeze())
     
     generated_frames = torch.stack(generated_frames)
@@ -456,7 +706,7 @@ def visualize_model_predictions(model, dataset, device, sample_idx=0, save_dir='
         save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
     )
 
-def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, checkpoint_dir='checkpoints'):
+def train(model, train_loader, optimizer, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     """Training loop for the Complex Fourier model"""
     os.makedirs(checkpoint_dir, exist_ok=True)
     
@@ -488,6 +738,7 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
                 # Setup 1
                 # noise = even_frames[:, t]
                 # Setup 2
+                # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
                 # Setup 3
                 noise = torch.rand(even_frames[:, t].shape).to(device)
                 
@@ -516,7 +767,7 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
         logging.info(f'Epoch {epoch} complete | Average Loss: {avg_epoch_loss:.6f}')
         
         # Save checkpoint
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % checkpoint_freq == 0:
             checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
             torch.save({
                 'epoch': epoch,
@@ -526,13 +777,86 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
             }, checkpoint_path)
             logging.info(f'Saved checkpoint to {checkpoint_path}')
 
-def vis_main():
+# Training function for direct interpolation
+def train_interpolation(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq, log_interval=10, checkpoint_dir='checkpoints'):
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
+    model.train()
+    
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
+            odd_frames = odd_frames.to(device)
+            even_frames = even_frames.to(device)
+            
+            optimizer.zero_grad()
+            
+            total_loss = 0
+            for t in range(even_frames.shape[1]):
+                # Get surrounding odd frames
+                frame1 = odd_frames[:, t]
+                frame2 = odd_frames[:, t+1]
+                
+                # Generate intermediate frame
+                predicted = model(frame1, frame2)
+                
+                # Calculate loss
+                loss = loss_fn(predicted, even_frames[:, t])
+                total_loss += loss
+            
+            avg_loss = total_loss / even_frames.shape[1]
+            avg_loss.backward()
+            optimizer.step()
+            
+            epoch_loss += avg_loss.item()
+            
+            if batch_idx % log_interval == 0:
+                logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                      f'Loss: {avg_loss.item():.6f}')
+        # Save checkpoint
+        if (epoch + 1) % checkpoint_freq == 0:
+            checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': epoch_loss,
+            }, checkpoint_path)
+            logging.info(f'Saved checkpoint to {checkpoint_path}')
+
+def combined_loss(pred, target, fourier_weight=0.5):
+    # Spatial domain loss
+    pred_tmp = pred.cpu().detach().numpy()
+    target_tmp = target.cpu().detach().numpy()
+    reconstructed_pred = torch.from_numpy(reconstruct_image(pred_tmp[:, 0], pred_tmp[:, 1]))
+    reconstructed_target = torch.from_numpy(reconstruct_image(target_tmp[:, 0], target_tmp[:, 1]))
+    spatial_loss = nn.MSELoss()(reconstructed_pred, reconstructed_target)
+    
+    # Fourier domain loss
+    fourier_loss = nn.MSELoss()(pred, target)
+    
+    # Combine both losses
+    total_loss = (1 - fourier_weight) * spatial_loss + fourier_weight * fourier_loss
+    return total_loss
+
+def separate_loss(pred, target, phase_weight=0.7):
+    # Magnitude loss
+    mag_loss = nn.MSELoss()(pred[:, 0], target[:, 0])
+    
+    # Phase loss
+    phase_loss = nn.MSELoss()(pred[:, 1], target[:, 1])
+    
+    # Combine both losses
+    total_loss = (1 - phase_weight) * mag_loss + phase_weight * phase_loss
+    return total_loss
+
+def vis_main(method):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Load dataset
     dataset = ComplexFourierDataset(
-        root_dir='/storage/esad/data/HILAL_OCT/test',  # Update with your data path
+        root_dir='/mnt/storage1/esad/data/HILAL_OCT/test',  # Update with your data path
         image_size=128
     )
     
@@ -542,42 +866,49 @@ def vis_main():
                                save_path=f'visualizations/sample_{i}')
     
     # Load trained model (if available)
-    model = ComplexUNetLarge(
-        input_channels=1,
-        condition_channels=2,
-        hidden_channels=64,
-        time_embed_dim=32
-    ).to(device)
+    if method == 'unet':
+        model = ComplexUNetLarge(
+            input_channels=1,
+            condition_channels=2,
+            hidden_channels=64,
+            time_embed_dim=32
+        ).to(device)
+    elif method == 'interpolation':
+        model = InterpolationUNet(
+            input_channels=1,
+            hidden_channels=64
+        ).to(device)
     
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints_20250112_154037'
+    checkpoint_dir = 'checkpoints_20250112_220339'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         if checkpoints:
-            latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[2])
+            latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[1])
             checkpoint = torch.load(latest_checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             print(f"Loaded checkpoint: {latest_checkpoint}")
             
             # Visualize model predictions
             for i in range(3):  # Visualize predictions for first 3 samples
-                visualize_model_predictions(model, dataset, device, sample_idx=i)
+                visualize_model_predictions(model, dataset, device, method, sample_idx=i)
 
-def main():
+def main(method):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
     BATCH_SIZE = 4
-    NUM_EPOCHS = 100
+    NUM_EPOCHS = 400
     LEARNING_RATE = 1e-4
     IMAGE_SIZE = 128
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
+    CHECKPOINT_FREQ = 25
     
     # Setup data
     dataset = ComplexFourierDataset(
-        root_dir='/storage/esad/data/HILAL_OCT/train',  # Update with your data path
+        root_dir='/mnt/storage1/esad/data/HILAL_OCT/train',  # Update with your data path
         image_size=IMAGE_SIZE
     )
     train_loader = DataLoader(
@@ -589,15 +920,23 @@ def main():
     )
     
     # Initialize model
-    model = ComplexUNetLarge(
-        input_channels=1,  # Single channel for grayscale images
-        condition_channels=2,  # Two surrounding frames as condition
-        hidden_channels=HIDDEN_CHANNELS,
-        time_embed_dim=TIME_EMBED_DIM
-    ).to(device)
+    if method == 'unet':
+        model = ComplexUNetLarge(
+            input_channels=1,  # Single channel for grayscale images
+            condition_channels=2,  # Two surrounding frames as condition
+            hidden_channels=HIDDEN_CHANNELS,
+            time_embed_dim=TIME_EMBED_DIM
+        ).to(device)
+    elif method == 'interpolation':
+        # Direct Interpolation
+        model = InterpolationUNet(
+            input_channels=1,  # For grayscale
+            hidden_channels=64
+        ).to(device)
     
     # Setup optimizer
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    loss = separate_loss
     
     # Create timestamp for this training run
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -607,13 +946,16 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         filemode='w',
-        filename='training.log',
+        filename='training_2.log',
         format='%(asctime)s - %(levelname)s - %(message)s',
     )
     
     # Start training
     logging.info("Starting training...")
-    train(model, train_loader, optimizer, device, NUM_EPOCHS, checkpoint_dir=checkpoint_dir)
+    if method == 'unet':
+        train(model, train_loader, optimizer, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
+    elif method == 'interpolation':
+        train_interpolation(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     
     # Save final model
     final_model_path = os.path.join(checkpoint_dir, 'final_model.pt')
@@ -621,5 +963,5 @@ def main():
     logging.info(f"Training complete. Final model saved to {final_model_path}")
 
 if __name__ == '__main__':
-    vis_main()
-    # main()
+    # vis_main('interpolation')
+    main('interpolation')
