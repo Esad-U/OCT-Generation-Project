@@ -135,6 +135,129 @@ class ComplexUNet(nn.Module):
         
         return x
 
+class ComplexUNetLarge(nn.Module):
+    def __init__(self, input_channels, condition_channels, hidden_channels, time_embed_dim):
+        super().__init__()
+        
+        # Double the channels to handle both magnitude and phase
+        self.input_channels = input_channels * 2
+        self.condition_channels = condition_channels * 2
+        
+        # Enhanced time embedding
+        self.time_mlp = nn.Sequential(
+            nn.Linear(1, time_embed_dim),
+            nn.SiLU(),
+            nn.Linear(time_embed_dim, time_embed_dim * 2),
+            nn.SiLU(),
+            nn.Linear(time_embed_dim * 2, time_embed_dim)
+        )
+        
+        # Calculate initial channels after concatenating input, condition, and time embedding
+        initial_channels = self.input_channels + self.condition_channels + time_embed_dim
+        
+        # Encoder path
+        self.inc = self._double_conv(initial_channels, hidden_channels)
+        self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
+        self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
+        self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
+        self.down4 = self._down_block(hidden_channels * 8, hidden_channels * 8)  # Limit maximum channels
+        
+        # Bridge
+        self.bridge = nn.Sequential(
+            self._double_conv(hidden_channels * 8, hidden_channels * 8),
+            SelfAttention(hidden_channels * 8)
+        )
+        
+        # Decoder path
+        self.up4 = nn.ConvTranspose2d(hidden_channels * 8, hidden_channels * 8, kernel_size=2, stride=2)
+        self.conv_up4 = self._double_conv(hidden_channels * 16, hidden_channels * 8)  # 16 due to skip connection
+        
+        self.up3 = nn.ConvTranspose2d(hidden_channels * 8, hidden_channels * 4, kernel_size=2, stride=2)
+        self.conv_up3 = self._double_conv(hidden_channels * 8, hidden_channels * 4)  # 8 due to skip connection
+        
+        self.up2 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 2, kernel_size=2, stride=2)
+        self.conv_up2 = self._double_conv(hidden_channels * 4, hidden_channels * 2)  # 4 due to skip connection
+        
+        self.up1 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2, stride=2)
+        self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)  # 2 due to skip connection
+        
+        # Output layer
+        self.outc = nn.Conv2d(hidden_channels, self.input_channels, kernel_size=1)
+    
+    def _double_conv(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.1)
+        )
+    
+    def _down_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.MaxPool2d(2),
+            self._double_conv(in_channels, out_channels)
+        )
+    
+    def forward(self, x, condition, t):
+        # Time embedding
+        t = self.time_mlp(t.float().view(-1, 1))
+        t = t.view(-1, t.shape[-1], 1, 1).expand(-1, -1, x.shape[-2], x.shape[-1])
+        
+        # Initial concatenation
+        x = torch.cat([x, condition, t], dim=1)
+        
+        # Encoder path with skip connections
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        
+        # Bridge
+        x5 = self.bridge(x5)
+        
+        # Decoder path with skip connections
+        x = self.up4(x5)
+        x = self.conv_up4(torch.cat([x, x4], dim=1))
+        
+        x = self.up3(x)
+        x = self.conv_up3(torch.cat([x, x3], dim=1))
+        
+        x = self.up2(x)
+        x = self.conv_up2(torch.cat([x, x2], dim=1))
+        
+        x = self.up1(x)
+        x = self.conv_up1(torch.cat([x, x1], dim=1))
+        
+        # Output projection
+        x = self.outc(x)
+        return x
+
+class SelfAttention(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.channels = channels
+        self.mha = nn.MultiheadAttention(channels, 8, batch_first=True)
+        self.ln = nn.LayerNorm([channels])
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([channels]),
+            nn.Linear(channels, channels),
+            nn.GELU(),
+            nn.Linear(channels, channels),
+        )
+
+    def forward(self, x):
+        size = x.shape[-2:]
+        x = x.view(-1, self.channels, size[0] * size[1]).swapaxes(1, 2)
+        x_ln = self.ln(x)
+        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        attention_value = attention_value + x
+        attention_value = self.ff_self(attention_value) + attention_value
+        return attention_value.swapaxes(2, 1).view(-1, self.channels, size[0], size[1])
+
 def reconstruct_image(magnitude, phase):
     """Reconstruct image from magnitude and phase"""
     # Denormalize magnitude and phase
@@ -303,13 +426,17 @@ def visualize_model_predictions(model, dataset, device, sample_idx=0, save_dir='
             if t < original_even_frames.shape[1] - 1:
                 condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
             else:
-                condition = torch.cat([odd_frames[:, t], odd_frames[:, t]], dim=1)
+                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
             
             # Create time tensor
             time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
             
+            noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+            # noise = torch.rand(original_even_frames[:, t].shape).to(device)
+            # noise = original_even_frames[:, t]
+
             # Generate even frame
-            generated = model(original_even_frames[:, t], condition, time)
+            generated = model(noise, condition, time)
             generated_frames.append(generated.cpu().squeeze())
     
     generated_frames = torch.stack(generated_frames)
@@ -357,9 +484,15 @@ def train(model, train_loader, optimizer, device, num_epochs, log_interval=10, c
                 # Create time tensor (normalized to [0, 1])
                 time = torch.tensor([t / even_frames.shape[1]]).to(device)
                 time = time.expand(batch_size)
+
+                # Setup 1
+                # noise = even_frames[:, t]
+                # Setup 2
+                # Setup 3
+                noise = torch.rand(even_frames[:, t].shape).to(device)
                 
                 # Generate even frame
-                generated = model(even_frames[:, t], condition, time)
+                generated = model(noise, condition, time)
                 
                 # Calculate loss (MSE for both magnitude and phase)
                 loss = nn.MSELoss()(generated, even_frames[:, t])
@@ -399,7 +532,7 @@ def vis_main():
     
     # Load dataset
     dataset = ComplexFourierDataset(
-        root_dir='test',  # Update with your data path
+        root_dir='/storage/esad/data/HILAL_OCT/test',  # Update with your data path
         image_size=128
     )
     
@@ -409,7 +542,7 @@ def vis_main():
                                save_path=f'visualizations/sample_{i}')
     
     # Load trained model (if available)
-    model = ComplexUNet(
+    model = ComplexUNetLarge(
         input_channels=1,
         condition_channels=2,
         hidden_channels=64,
@@ -417,11 +550,11 @@ def vis_main():
     ).to(device)
     
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints_20250105_020535'
+    checkpoint_dir = 'checkpoints_20250112_154037'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         if checkpoints:
-            latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[-1])
+            latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[2])
             checkpoint = torch.load(latest_checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             print(f"Loaded checkpoint: {latest_checkpoint}")
@@ -444,7 +577,7 @@ def main():
     
     # Setup data
     dataset = ComplexFourierDataset(
-        root_dir='train',  # Update with your data path
+        root_dir='/storage/esad/data/HILAL_OCT/train',  # Update with your data path
         image_size=IMAGE_SIZE
     )
     train_loader = DataLoader(
@@ -456,7 +589,7 @@ def main():
     )
     
     # Initialize model
-    model = ComplexUNet(
+    model = ComplexUNetLarge(
         input_channels=1,  # Single channel for grayscale images
         condition_channels=2,  # Two surrounding frames as condition
         hidden_channels=HIDDEN_CHANNELS,
@@ -488,6 +621,5 @@ def main():
     logging.info(f"Training complete. Final model saved to {final_model_path}")
 
 if __name__ == '__main__':
-    #vis_main()
-    main()
-    #vis_main()
+    vis_main()
+    # main()
