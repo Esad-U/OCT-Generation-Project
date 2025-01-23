@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import logging
 
-def train_diffusion(model, train_loader, optimizer, device, num_epochs, log_interval=10):
+def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, log_interval=10):
     model.train()
     
     for epoch in range(num_epochs):
@@ -29,7 +29,7 @@ def train_diffusion(model, train_loader, optimizer, device, num_epochs, log_inte
                 noise_pred = model(noisy_frame, condition, timesteps)
                 
                 # Calculate loss
-                loss = nn.MSELoss()(noise_pred, noise)
+                loss = loss_fn(noise_pred, noise)
                 total_loss += loss
             
             avg_loss = total_loss / even_frames.shape[1]
@@ -42,7 +42,7 @@ def train_diffusion(model, train_loader, optimizer, device, num_epochs, log_inte
                 print(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
                       f'Loss: {avg_loss.item():.6f}')
 
-def train(model, train_loader, optimizer, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
+def train(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     """Training loop for the Complex Fourier model"""
     os.makedirs(checkpoint_dir, exist_ok=True)
     
@@ -82,7 +82,7 @@ def train(model, train_loader, optimizer, device, num_epochs, checkpoint_freq=25
                 generated = model(noise, condition, time)
                 
                 # Calculate loss (MSE for both magnitude and phase)
-                loss = nn.MSELoss()(generated, even_frames[:, t])
+                loss = loss_fn(generated, even_frames[:, t])
                 total_loss += loss
             
             # Average loss over time steps
