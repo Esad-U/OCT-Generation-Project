@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def reconstruct_image(magnitude, phase):
     """Reconstruct image from magnitude and phase"""
@@ -41,7 +42,7 @@ def sample_diffusion(model, condition, device, shape):
             
         x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_bar))) * predicted_noise) + \
             torch.sqrt(beta) * noise
-            
+    # print(x.shape)
     return x
 
 

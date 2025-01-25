@@ -265,7 +265,7 @@ class InterpolationUNet(nn.Module):
 
 # TODO: Experiment on diffusion model
 class DiffusionInterpolator(nn.Module):
-    def __init__(self, input_channels, hidden_channels, timesteps=1000):
+    def __init__(self, input_channels, hidden_channels, device='cuda', timesteps=1000):
         super().__init__()
         self.timesteps = timesteps
         self.input_channels = input_channels * 2  # *2 for complex input
@@ -273,7 +273,7 @@ class DiffusionInterpolator(nn.Module):
         # Beta schedule
         self.beta = torch.linspace(1e-4, 0.02, timesteps)
         self.alpha = 1. - self.beta
-        self.alpha_bar = torch.cumprod(self.alpha, dim=0)
+        self.alpha_bar = torch.cumprod(self.alpha, dim=0).to(device)
         
         # Time embedding
         time_embed_dim = hidden_channels * 4
@@ -285,7 +285,7 @@ class DiffusionInterpolator(nn.Module):
         )
         
         # U-Net
-        self.inc = self._double_conv(self.input_channels * 2 + time_embed_dim, hidden_channels)  # *2 for condition
+        self.inc = self._double_conv(self.input_channels * 3 + time_embed_dim, hidden_channels)  # *2 for condition
         self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
         self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
         self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)

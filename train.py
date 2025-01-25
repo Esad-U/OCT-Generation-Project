@@ -1,9 +1,13 @@
 import torch
 import torch.nn as nn
 import logging
+import os
 
-def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, log_interval=10):
+def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
     model.train()
+    total_steps = 0
     
     for epoch in range(num_epochs):
         epoch_loss = 0.0
@@ -37,10 +41,27 @@ def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs,
             optimizer.step()
             
             epoch_loss += avg_loss.item()
-            
+            total_steps += 1
+
+            # Log progress
             if batch_idx % log_interval == 0:
-                print(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
-                      f'Loss: {avg_loss.item():.6f}')
+                logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                           f'Loss: {avg_loss.item():.6f}')
+        
+        # Log epoch summary
+        avg_epoch_loss = epoch_loss / len(train_loader)
+        logging.info(f'Epoch {epoch} complete | Average Loss: {avg_epoch_loss:.6f}')
+        
+        # Save checkpoint
+        if (epoch + 1) % checkpoint_freq == 0:
+            checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': avg_epoch_loss,
+            }, checkpoint_path)
+            logging.info(f'Saved checkpoint to {checkpoint_path}')
 
 def train(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     """Training loop for the Complex Fourier model"""

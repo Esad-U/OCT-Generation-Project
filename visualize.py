@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 import os
 
-from visualize import reconstruct_image
+from utils import reconstruct_image, sample_diffusion
 
 def visualize_results(original_odd, original_even, generated_even, save_path=None):
     """Visualize original and generated sequences with reconstructed images"""
@@ -169,6 +169,10 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
                 frame1 = odd_frames[:, t]
                 frame2 = odd_frames[:, t+1]
                 generated = model(frame1, frame2)
+            elif method == 'diffusion':
+                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
+
             generated_frames.append(generated.cpu().squeeze())
     
     generated_frames = torch.stack(generated_frames)

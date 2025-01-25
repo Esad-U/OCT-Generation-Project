@@ -16,7 +16,7 @@ def combined_loss(pred, target, fourier_weight=0.5):
     total_loss = (1 - fourier_weight) * spatial_loss + fourier_weight * fourier_loss
     return total_loss
 
-def separate_loss(pred, target, phase_weight=0.7):
+def separate_loss(pred, target, phase_weight=0.5):
     # Magnitude loss
     mag_loss = nn.MSELoss()(pred[:, 0], target[:, 0])
     
