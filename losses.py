@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 
+from utils import reconstruct_image
+
+# TODO: Daha detaylı bakacak bir loss fonksiyonuna ihtiyacım var
+
 def combined_loss(pred, target, fourier_weight=0.5):
     # Spatial domain loss
     pred_tmp = pred.cpu().detach().numpy()
@@ -16,14 +20,16 @@ def combined_loss(pred, target, fourier_weight=0.5):
     total_loss = (1 - fourier_weight) * spatial_loss + fourier_weight * fourier_loss
     return total_loss
 
-def separate_loss(pred, target, phase_weight=0.5):
+def separate_loss(pred, target, phase_weight=0.7):
     # Magnitude loss
-    mag_loss = nn.MSELoss()(pred[:, 0], target[:, 0])
+    mag_loss = nn.L1Loss()(pred[:, 0], target[:, 0])
     
     # Phase loss
-    phase_loss = nn.MSELoss()(pred[:, 1], target[:, 1])
+    phase_loss = nn.L1Loss()(pred[:, 1], target[:, 1])
     
     # Combine both losses
     total_loss = (1 - phase_weight) * mag_loss + phase_weight * phase_loss
     return total_loss
 
+def interpolation_loss(pred, target):
+    return nn.MSELoss()(pred, target)

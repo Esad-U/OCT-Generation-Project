@@ -75,60 +75,114 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
     
     plt.show()
 
-def visualize_dataset_sample(dataset, sample_idx=0, save_path=None):
+def visualize_interpolations(original_odd, original_even, generated_even, save_path=None):
+    """Visualize reconstructed images"""
+    num_timesteps = original_even.shape[0]
+    fig, axes = plt.subplots(3, num_timesteps, figsize=(20, 8))
+    
+    # Plot titles
+    axes[0, num_timesteps//2].set_title("Odd Frames", pad=10)
+    axes[1, num_timesteps//2].set_title("Original Even Frames", pad=10)
+    axes[2, num_timesteps//2].set_title("Generated Even Frames", pad=10)
+    
+    # Reconstruct and plot images
+    for t in range(num_timesteps):
+        if t < len(original_odd):
+            axes[0, t].imshow(original_odd[t], cmap='gray')
+            axes[0, t].axis('off')
+        # A trick to reconstruct the even frames using the odd frames
+        # recon_gen_even = reconstruct_image(generated_even[t, 0], (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
+        
+        axes[1, t].imshow(original_even[t], cmap='gray')
+        axes[2, t].imshow(generated_even[t], cmap='gray')
+        axes[1, t].axis('off')
+        axes[2, t].axis('off')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        print(f"Saved reconstructions to {save_path}")
+    
+    plt.show()
+
+def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
     """
     Visualize a single sample from the dataset, showing both the Fourier components
     and reconstructed images.
     """
     odd_frames, even_frames = dataset[sample_idx]
-    
-    # Create figure for Fourier components
-    fig1, axes1 = plt.subplots(4, max(odd_frames.shape[0], even_frames.shape[0]), 
-                              figsize=(20, 12))
-    fig1.suptitle('Fourier Components', fontsize=16)
-    
-    # Plot odd frames
-    axes1[0, 0].set_ylabel('Odd Magnitude')
-    axes1[1, 0].set_ylabel('Odd Phase')
-    for i in range(odd_frames.shape[0]):
-        axes1[0, i].imshow(odd_frames[i, 0], cmap='viridis')
-        axes1[1, i].imshow(odd_frames[i, 1], cmap='twilight')
-        axes1[0, i].axis('off')
-        axes1[1, i].axis('off')
-    
-    # Plot even frames
-    axes1[2, 0].set_ylabel('Even Magnitude')
-    axes1[3, 0].set_ylabel('Even Phase')
-    for i in range(even_frames.shape[0]):
-        axes1[2, i].imshow(even_frames[i, 0], cmap='viridis')
-        axes1[3, i].imshow(even_frames[i, 1], cmap='twilight')
-        axes1[2, i].axis('off')
-        axes1[3, i].axis('off')
-    
-    # Create figure for reconstructed images
-    fig2, axes2 = plt.subplots(2, max(odd_frames.shape[0], even_frames.shape[0]), 
-                              figsize=(20, 6))
-    fig2.suptitle('Reconstructed Images', fontsize=16)
-    
-    # Plot reconstructed odd frames
-    axes2[0, 0].set_ylabel('Odd Frames')
-    for i in range(odd_frames.shape[0]):
-        recon_odd = reconstruct_image(odd_frames[i, 0], odd_frames[i, 1])
-        axes2[0, i].imshow(recon_odd, cmap='gray')
-        axes2[0, i].axis('off')
-    
-    # Plot reconstructed even frames
-    axes2[1, 0].set_ylabel('Even Frames')
-    for i in range(even_frames.shape[0]):
-        recon_even = reconstruct_image(even_frames[i, 0], even_frames[i, 1])
-        axes2[1, i].imshow(recon_even, cmap='gray')
-        axes2[1, i].axis('off')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        fig1.savefig(f'{save_path}_fourier.png', bbox_inches='tight', dpi=300)
-        fig2.savefig(f'{save_path}_reconstructed.png', bbox_inches='tight', dpi=300)
+
+    if method == 'interpolation':
+        # Create figure for reconstructed images
+        fig2, axes2 = plt.subplots(2, max(odd_frames.shape[0], even_frames.shape[0]), 
+                                figsize=(20, 6))
+        fig2.suptitle('Images', fontsize=16)
+        
+        # Plot reconstructed odd frames
+        axes2[0, 0].set_ylabel('Odd Frames')
+        for i in range(odd_frames.shape[0]):
+            axes2[0, i].imshow(odd_frames[i], cmap='gray')
+            axes2[0, i].axis('off')
+        
+        # Plot reconstructed even frames
+        axes2[1, 0].set_ylabel('Even Frames')
+        for i in range(even_frames.shape[0]):
+            axes2[1, i].imshow(even_frames[i], cmap='gray')
+            axes2[1, i].axis('off')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            fig2.savefig(f'{save_path}_reconstructed.png', bbox_inches='tight', dpi=300)
+    else: 
+        # Create figure for Fourier components
+        fig1, axes1 = plt.subplots(4, max(odd_frames.shape[0], even_frames.shape[0]), 
+                                figsize=(20, 12))
+        fig1.suptitle('Fourier Components', fontsize=16)
+        
+        # Plot odd frames
+        axes1[0, 0].set_ylabel('Odd Magnitude')
+        axes1[1, 0].set_ylabel('Odd Phase')
+        for i in range(odd_frames.shape[0]):
+            axes1[0, i].imshow(odd_frames[i, 0], cmap='viridis')
+            axes1[1, i].imshow(odd_frames[i, 1], cmap='twilight')
+            axes1[0, i].axis('off')
+            axes1[1, i].axis('off')
+        
+        # Plot even frames
+        axes1[2, 0].set_ylabel('Even Magnitude')
+        axes1[3, 0].set_ylabel('Even Phase')
+        for i in range(even_frames.shape[0]):
+            axes1[2, i].imshow(even_frames[i, 0], cmap='viridis')
+            axes1[3, i].imshow(even_frames[i, 1], cmap='twilight')
+            axes1[2, i].axis('off')
+            axes1[3, i].axis('off')
+        
+        # Create figure for reconstructed images
+        fig2, axes2 = plt.subplots(2, max(odd_frames.shape[0], even_frames.shape[0]), 
+                                figsize=(20, 6))
+        fig2.suptitle('Reconstructed Images', fontsize=16)
+        
+        # Plot reconstructed odd frames
+        axes2[0, 0].set_ylabel('Odd Frames')
+        for i in range(odd_frames.shape[0]):
+            recon_odd = reconstruct_image(odd_frames[i, 0], odd_frames[i, 1])
+            axes2[0, i].imshow(recon_odd, cmap='gray')
+            axes2[0, i].axis('off')
+        
+        # Plot reconstructed even frames
+        axes2[1, 0].set_ylabel('Even Frames')
+        for i in range(even_frames.shape[0]):
+            recon_even = reconstruct_image(even_frames[i, 0], even_frames[i, 1])
+            axes2[1, i].imshow(recon_even, cmap='gray')
+            axes2[1, i].axis('off')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            fig1.savefig(f'{save_path}_fourier.png', bbox_inches='tight', dpi=300)
+            fig2.savefig(f'{save_path}_reconstructed.png', bbox_inches='tight', dpi=300)
     
     plt.show()
 
@@ -177,18 +231,25 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
     
     generated_frames = torch.stack(generated_frames)
     
-    # Visualize results
-    visualize_results(
-        odd_frames.squeeze().cpu().numpy(),
-        original_even_frames.squeeze().cpu().numpy(),
-        generated_frames.numpy(),
-        save_path=os.path.join(save_dir, f'sample_{sample_idx}_fourier.png')
-    )
-    
-    visualize_reconstructions(
-        odd_frames.squeeze().cpu().numpy(),
-        original_even_frames.squeeze().cpu().numpy(),
-        generated_frames.numpy(),
-        save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
-    )
-
+    if method == 'interpolation':
+        visualize_interpolations(
+            odd_frames.squeeze().cpu().numpy(),
+            original_even_frames.squeeze().cpu().numpy(),
+            generated_frames.numpy(),
+            save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
+        )
+    else:
+        # Visualize results
+        visualize_results(
+            odd_frames.squeeze().cpu().numpy(),
+            original_even_frames.squeeze().cpu().numpy(),
+            generated_frames.numpy(),
+            save_path=os.path.join(save_dir, f'sample_{sample_idx}_fourier.png')
+        )
+        
+        visualize_reconstructions(
+            odd_frames.squeeze().cpu().numpy(),
+            original_even_frames.squeeze().cpu().numpy(),
+            generated_frames.numpy(),
+            save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
+        )

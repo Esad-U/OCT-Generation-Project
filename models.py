@@ -194,7 +194,7 @@ class InterpolationUNet(nn.Module):
         super().__init__()
         
         # Input is two surrounding frames concatenated
-        self.input_channels = input_channels * 4  # *2 for two frames, *2 for complex input
+        self.input_channels = input_channels * 2  # *2 for two frames, *2 for complex input
         
         # Encoder
         self.inc = self._double_conv(self.input_channels, hidden_channels)
@@ -219,7 +219,7 @@ class InterpolationUNet(nn.Module):
         self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)
         
         # Output layer (2 channels for complex output)
-        self.outc = nn.Conv2d(hidden_channels, input_channels * 2, kernel_size=1)
+        self.outc = nn.Conv2d(hidden_channels, input_channels, kernel_size=1)
         
     def _double_conv(self, in_channels, out_channels):
         return nn.Sequential(
@@ -238,6 +238,8 @@ class InterpolationUNet(nn.Module):
         )
     
     def forward(self, frame1, frame2):
+        frame1 = frame1.reshape((frame1.shape[0], 1, frame1.shape[1], frame1.shape[2]))
+        frame2 = frame2.reshape((frame2.shape[0], 1, frame2.shape[1], frame2.shape[2]))
         # Concatenate input frames
         x = torch.cat([frame1, frame2], dim=1)
         
@@ -260,10 +262,9 @@ class InterpolationUNet(nn.Module):
         x = self.up1(x)
         x = self.conv_up1(torch.cat([x, x1], dim=1))
         
-        return self.outc(x)
+        return self.outc(x).squeeze(1)
 
 
-# TODO: Experiment on diffusion model
 class DiffusionInterpolator(nn.Module):
     def __init__(self, input_channels, hidden_channels, device='cuda', timesteps=1000):
         super().__init__()

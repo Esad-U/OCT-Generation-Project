@@ -49,5 +49,5 @@ def split_folders(root_dir, test_size=20):
 # Example usage
 if __name__ == "__main__":
     # Replace with your root directory path
-    root_directory = "/mnt/storage1/esad/data/HILAL_OCT/organized"
+    root_directory = "/storage/esad/data/OCT/organized"
     split_folders(root_directory)
