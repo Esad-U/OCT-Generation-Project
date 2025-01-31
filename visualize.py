@@ -60,7 +60,7 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
         recon_orig_even = reconstruct_image(original_even[t, 0], original_even[t, 1])
         recon_gen_even = reconstruct_image(generated_even[t, 0], generated_even[t, 1])
         # A trick to reconstruct the even frames using the odd frames
-        # recon_gen_even = reconstruct_image(generated_even[t, 0], (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
+        # recon_gen_even = reconstruct_image((original_odd[t, 0] + original_odd[t+1, 0]) / 2, (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
         
         axes[1, t].imshow(recon_orig_even, cmap='gray')
         axes[2, t].imshow(recon_gen_even, cmap='gray')

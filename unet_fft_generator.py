@@ -70,11 +70,11 @@ def main(method, loss_name):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 8
+    BATCH_SIZE = 4
     NUM_EPOCHS = 500
     LEARNING_RATE = 1e-4
-    IMAGE_SIZE = 128
-    HIDDEN_CHANNELS = 64
+    IMAGE_SIZE = 256
+    HIDDEN_CHANNELS = 48
     TIME_EMBED_DIM = 32
     CHECKPOINT_FREQ = 25
     
@@ -110,12 +110,12 @@ def main(method, loss_name):
         # Direct Interpolation
         model = InterpolationUNet(
             input_channels=1,
-            hidden_channels=96
+            hidden_channels=HIDDEN_CHANNELS
         ).to(device)
     elif method == 'diffusion':
         model = DiffusionInterpolator(
             input_channels=1,
-            hidden_channels=64
+            hidden_channels=HIDDEN_CHANNELS
         ).to(device)
     
     # Setup optimizer
@@ -140,7 +140,9 @@ def main(method, loss_name):
     )
     
     # Start training
-    logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}")
+    logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
+                    \nOptimizer: Adam\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
+                    \nLearning Rate: {LEARNING_RATE}")
     if method == 'unet':
         train(model, train_loader, optimizer, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'interpolation':
@@ -154,5 +156,5 @@ def main(method, loss_name):
     logging.info(f"Training complete. Final model saved to {final_model_path}")
 
 if __name__ == '__main__':
-    vis_main('interpolation')
-    # main('interpolation', 'interpolation')
+    # vis_main('interpolation')
+    main('interpolation', 'interpolation')
