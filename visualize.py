@@ -104,7 +104,7 @@ def visualize_interpolations(original_odd, original_even, generated_even, save_p
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
         print(f"Saved reconstructions to {save_path}")
     
-    plt.show()
+    save_frames(original_odd, generated_even)
 
 def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
     """
@@ -253,3 +253,19 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
             generated_frames.numpy(),
             save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
         )
+
+        save_frames(
+            odd_frames.squeeze().cpu().numpy(), 
+            generated_frames.numpy(), 
+        )
+
+# A function to save the original odd frames and generated frames named in a sequence
+def save_frames(original_odd, generated_even, save_dir='sequence_predictions'):
+    os.makedirs(save_dir, exist_ok=True)
+    
+    for i in range(len(original_odd)):
+        plt.imsave(f'{save_dir}/{(2*i)+1}.png', original_odd[i], cmap='gray')
+    for i in range(len(generated_even)):
+        plt.imsave(f'{save_dir}/{(i+1)*2}.png', generated_even[i], cmap='gray')
+    
+    print(f"Saved frames to {save_dir}")

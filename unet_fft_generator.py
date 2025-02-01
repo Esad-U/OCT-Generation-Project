@@ -18,7 +18,7 @@ def vis_main(method):
     # Load dataset
     if method == 'interpolation':
         dataset = RegularDataset(
-            root_dir='/storage/esad/data/OCT/test',
+            root_dir='/mnt/storage1/esad/data/OCT/test',
             image_size=128
         )
     else:
@@ -43,7 +43,7 @@ def vis_main(method):
     elif method == 'interpolation':
         model = InterpolationUNet(
             input_channels=1,
-            hidden_channels=96
+            hidden_channels=64
         ).to(device)
     elif method == 'diffusion':
         model = DiffusionInterpolator(
@@ -52,11 +52,13 @@ def vis_main(method):
         ).to(device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250127_213259'
+    checkpoint_dir = 'checkpoints/checkpoints_20250131_150226'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
+        # Choose the checkpoint that includes 500 inside the filename
+        checkpoint = [c for c in checkpoints if '500' in c][0]
         if checkpoints:
-            latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[19])
+            latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             print(f"Loaded checkpoint: {latest_checkpoint}")
@@ -70,18 +72,18 @@ def main(method, loss_name):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 4
+    BATCH_SIZE = 6
     NUM_EPOCHS = 500
     LEARNING_RATE = 1e-4
     IMAGE_SIZE = 256
-    HIDDEN_CHANNELS = 48
+    HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
     CHECKPOINT_FREQ = 25
     
     # Setup data
     if method == 'interpolation':
         dataset = RegularDataset(
-            root_dir='/storage/esad/data/OCT/train',
+            root_dir='/mnt/storage1/esad/data/OCT/train',
             image_size=IMAGE_SIZE
         )
     else:
@@ -156,5 +158,5 @@ def main(method, loss_name):
     logging.info(f"Training complete. Final model saved to {final_model_path}")
 
 if __name__ == '__main__':
-    # vis_main('interpolation')
-    main('interpolation', 'interpolation')
+    vis_main('interpolation')
+    # main('interpolation', 'interpolation')
