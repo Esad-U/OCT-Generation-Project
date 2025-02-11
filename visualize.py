@@ -259,6 +259,27 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
         #     generated_frames.numpy(), 
         # )
 
+def plot_losses(train_losses, test_losses, save_path=None):
+    plt.figure(figsize=(10, 6))
+    epochs = range(1, len(train_losses) + 1)
+    
+    plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2)
+    plt.plot(epochs, test_losses, 'g-', label='Test Loss', linewidth=2)
+    
+    plt.title('Training and Test Loss Over Time')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
 # A function to save the original odd frames and generated frames named in a sequence
 def save_frames(original_odd, generated_even, save_dir='sequence_predictions'):
     os.makedirs(save_dir, exist_ok=True)

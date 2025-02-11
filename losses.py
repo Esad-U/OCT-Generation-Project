@@ -3,12 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import reconstruct_image
-from kornia.losses import psnr_loss, ssim_loss
+from kornia.losses import psnr_loss
 from kornia.filters import sobel
 
 # TODO: Daha detaylı bakacak bir loss fonksiyonuna ihtiyacım var
 # TODO: SSIM - Deneniyor Kornia ile de denenebilir -> kornia.losses.ssim_loss
-# TODO: Gradient loss: Sobel + MSE - yazdım denemedim
+# TODO: Gradient loss: Sobel + MSE - yazdım deniyorum
 # TODO: PSNR - yazdım denemedim
 # TODO: Perceptual loss with VGG
 # TODO: SSIM + L1 - yazdım denemedim
@@ -22,16 +22,16 @@ def gradient_loss(pred, target):
     pred_gradients = sobel(pred)
     target_gradients = sobel(target)
 
-    return nn.MSELoss(pred_gradients, target_gradients)
+    return nn.MSELoss()(pred_gradients, target_gradients)
 
 def psnr(pred, target):
     return psnr_loss(pred, target, torch.max(pred))
 
 def ssim_l1(pred, target, window_size=11):
-    l1 = nn.L1Loss(pred, target)
-    ssim = ssim_loss(pred, target, max_val=torch.max(pred))
+    l1 = nn.L1Loss()(pred, target)
+    ssim_l = ssim(pred, target)
 
-    return ssim + l1
+    return ssim_l + l1
 
 def create_window(window_size, channel=1):
     def gaussian(window_size, sigma):
@@ -45,20 +45,6 @@ def create_window(window_size, channel=1):
     return window
 
 def ssim(img1, img2, window_size=11, window=None, size_average=True, full=False, val_range=None):
-    """Calculate SSIM between two 2D images.
-    
-    Args:
-        img1 (torch.Tensor): First image of shape (batch_size, height, width)
-        img2 (torch.Tensor): Second image of shape (batch_size, height, width)
-        window_size (int): The size of gaussian window
-        window (torch.Tensor, optional): Precomputed window
-        size_average (bool): If True, average over batch dimension
-        full (bool): If True, return (ssim, cs)
-        val_range (float): Maximum value range of images (usually 1.0 or 255)
-
-    Returns:
-        torch.Tensor: SSIM value
-    """
     # Add channel dimension
     img1 = img1.unsqueeze(1)  # Shape becomes (batch_size, 1, height, width)
     img2 = img2.unsqueeze(1)
