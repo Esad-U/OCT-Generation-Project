@@ -161,8 +161,9 @@ def train_interpolation(model, train_loader, optimizer, loss_fn, device, num_epo
                 loss = loss_fn(predicted, even_frames[:, t])
                 total_loss += loss
             
-            avg_loss = total_loss / even_frames.shape[1]
-            avg_loss.backward()
+            # avg_loss = total_loss / even_frames.shape[1]
+            # avg_loss.backward()
+            total_loss.backward()
             optimizer.step()
             
             epoch_loss += avg_loss.item()

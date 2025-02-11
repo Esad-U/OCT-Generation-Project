@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+# TODO: Implement a GAN model
+
 class ComplexUNet(nn.Module):
     def __init__(self, input_channels, condition_channels, hidden_channels, time_embed_dim):
         super().__init__()

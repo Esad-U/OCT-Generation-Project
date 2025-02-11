@@ -254,10 +254,10 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
             save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
         )
 
-        save_frames(
-            odd_frames.squeeze().cpu().numpy(), 
-            generated_frames.numpy(), 
-        )
+        # save_frames(
+        #     odd_frames.squeeze().cpu().numpy(), 
+        #     generated_frames.numpy(), 
+        # )
 
 # A function to save the original odd frames and generated frames named in a sequence
 def save_frames(original_odd, generated_even, save_dir='sequence_predictions'):
