@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 
 from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator
+from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset
 from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_l1, gradient_loss
 from train import train, train_interpolation, train_diffusion
@@ -52,11 +53,11 @@ def vis_main(method):
         ).to(device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250210_153757'
+    checkpoint_dir = 'checkpoints/checkpoints_20250212_103442'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         # Choose the checkpoint that includes 500 inside the filename
-        checkpoint = [c for c in checkpoints if '1000' in c][0]
+        checkpoint = [c for c in checkpoints if '450' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint)
@@ -81,7 +82,7 @@ def main(method, loss_name, optimizer_choice):
     CHECKPOINT_FREQ = 50
     
     # Setup data
-    if method == 'interpolation':
+    if method == 'interpolation' or method == 'gan':
         train_dataset = RegularDataset(
             root_dir='/storage/esad/data/OCT/train',
             image_size=IMAGE_SIZE
@@ -130,6 +131,10 @@ def main(method, loss_name, optimizer_choice):
             input_channels=1,
             hidden_channels=HIDDEN_CHANNELS
         ).to(device)
+    elif method == 'gan':
+        model = OCTGAN(
+            device=device
+        )
     
     # Setup optimizer
     if optimizer_choice == 'adam':
@@ -138,6 +143,8 @@ def main(method, loss_name, optimizer_choice):
         optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE)
     elif optimizer_choice == 'adamw':
         optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    else:
+        pass
 
     if loss_name == 'combined':
         loss = combined_loss
@@ -165,9 +172,12 @@ def main(method, loss_name, optimizer_choice):
     )
     
     # Start training
-    logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
-                    \nOptimizer: {optimizer_choice}\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
-                    \nLearning Rate: {LEARNING_RATE}\nDevice: {device}")
+    if method == 'gan':
+        logging.info(f"Starting training...\nMethod: OCTGAN")
+    else:
+        logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
+                        \nOptimizer: {optimizer_choice}\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
+                        \nLearning Rate: {LEARNING_RATE}\nDevice: {device}")
 
     if method == 'unet':
         train(model, train_loader, optimizer, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
@@ -176,15 +186,23 @@ def main(method, loss_name, optimizer_choice):
                                                             CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'diffusion':
         train_diffusion(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
-    
-    # Save final model
-    final_model_path = os.path.join(checkpoint_dir, 'final_model.pt')
-    torch.save(model.state_dict(), final_model_path)
-    logging.info(f"Training complete. Final model saved to {final_model_path}")
+    elif method == 'gan':
+        model.train(train_loader, NUM_EPOCHS, checkpoint_dir, CHECKPOINT_FREQ)
 
-    plot_losses(train_loss, test_loss, save_path=checkpoint_dir+'/loss.png')
-    logging.info(f"Loss plot is saved.")
+    # Save final model
+    if method == 'gan':
+        final_model_path = os.path.join(checkpoint_dir, 'final_model.pt')
+        torch.save(model.generator.state_dict(), final_model_path)
+        logging.info(f"Training complete. Final model saved to {final_model_path}")
+    else:
+        final_model_path = os.path.join(checkpoint_dir, 'final_model.pt')
+        torch.save(model.state_dict(), final_model_path)
+        logging.info(f"Training complete. Final model saved to {final_model_path}")
+
+    if method == 'interpolation':
+        plot_losses(train_loss, test_loss, save_path=checkpoint_dir+'/loss.png')
+        logging.info(f"Loss plot is saved.")
 
 if __name__ == '__main__':
-    # vis_main('interpolation')
-    main('interpolation', 'ssim_l1', 'adamw')
+    # vis_main('interpolation')
+    main('gan', 'gradient', 'gan')

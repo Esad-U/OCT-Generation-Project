@@ -22,7 +22,10 @@ def gradient_loss(pred, target):
     pred_gradients = sobel(pred)
     target_gradients = sobel(target)
 
-    return nn.MSELoss()(pred_gradients, target_gradients)
+    gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
+    mse_l = nn.MSELoss()(pred, target)
+
+    return 0.5 * gradient_l + 0.5 * mse_l
 
 def psnr(pred, target):
     return psnr_loss(pred, target, torch.max(pred))
