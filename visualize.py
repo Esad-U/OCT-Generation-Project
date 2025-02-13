@@ -113,7 +113,7 @@ def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
     """
     odd_frames, even_frames = dataset[sample_idx]
 
-    if method == 'interpolation':
+    if method == 'interpolation' or method == 'gan':
         # Create figure for reconstructed images
         fig2, axes2 = plt.subplots(2, max(odd_frames.shape[0], even_frames.shape[0]), 
                                 figsize=(20, 6))
@@ -191,7 +191,10 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
     Generate and visualize model predictions for a single sample.
     """
     os.makedirs(save_dir, exist_ok=True)
-    model.eval()
+    if method == 'gan':
+        model.generator.eval()
+    else:
+        model.eval()
     
     # Get sample data
     odd_frames, original_even_frames = dataset[sample_idx]
@@ -202,36 +205,40 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
     
     with torch.no_grad():
         # Generate each even frame
-        for t in range(original_even_frames.shape[1]):
-            # Get surrounding odd frames as condition
-            if method == 'unet':
-                if t < original_even_frames.shape[1] - 1:
-                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                else:
-                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                
-                # Create time tensor
-                time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
-                
-                noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
-                # noise = torch.rand(original_even_frames[:, t].shape).to(device)
-                # noise = original_even_frames[:, t]
+        if method == 'gan':
+            generated_frames = model.generate_sequence(odd_frames)
+            generated_frames = generated_frames.squeeze().cpu()
+        else:
+            for t in range(original_even_frames.shape[1]):
+                # Get surrounding odd frames as condition
+                if method == 'unet':
+                    if t < original_even_frames.shape[1] - 1:
+                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    else:
+                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    
+                    # Create time tensor
+                    time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
+                    
+                    noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+                    # noise = torch.rand(original_even_frames[:, t].shape).to(device)
+                    # noise = original_even_frames[:, t]
 
-                # Generate even frame
-                generated = model(noise, condition, time)
-            elif method == 'interpolation':
-                frame1 = odd_frames[:, t]
-                frame2 = odd_frames[:, t+1]
-                generated = model(frame1, frame2)
-            elif method == 'diffusion':
-                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
+                    # Generate even frame
+                    generated = model(noise, condition, time)
+                elif method == 'interpolation':
+                    frame1 = odd_frames[:, t]
+                    frame2 = odd_frames[:, t+1]
+                    generated = model(frame1, frame2)
+                elif method == 'diffusion':
+                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
-            generated_frames.append(generated.cpu().squeeze())
+                generated_frames.append(generated.cpu().squeeze())
+        
+            generated_frames = torch.stack(generated_frames)
     
-    generated_frames = torch.stack(generated_frames)
-    
-    if method == 'interpolation':
+    if method == 'interpolation' or method == 'gan':
         visualize_interpolations(
             odd_frames.squeeze().cpu().numpy(),
             original_even_frames.squeeze().cpu().numpy(),

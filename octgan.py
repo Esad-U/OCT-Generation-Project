@@ -318,6 +318,9 @@ class OCTGAN:
             for i in range(odd_frames.size(1) - 1):
                 img1 = odd_frames[:, i].to(self.device)
                 img2 = odd_frames[:, i + 1].to(self.device)
+                img1 = img1.unsqueeze(1)
+                img2 = img2.unsqueeze(1)
+
                 generated = self.generator(img1, img2)
                 generated_frames.append(generated)
         self.generator.train()
