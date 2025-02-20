@@ -8,7 +8,7 @@ from datetime import datetime
 from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator
 from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset
-from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_l1, gradient_loss
+from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss
 from train import train, train_interpolation, train_diffusion
 from visualize import visualize_dataset_sample, visualize_model_predictions, plot_losses
 
@@ -17,10 +17,10 @@ def vis_main(method):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Load dataset
-    if method == 'interpolation':
+    if method == 'interpolation' or method == 'gan':
         dataset = RegularDataset(
-            root_dir='/storage/esad/data/OCT/test',
-            image_size=128
+            root_dir='/mnt/storage1/esad/data/OCT/test',
+            image_size=256
         )
     else:
         dataset = ComplexFourierDataset(
@@ -51,17 +51,22 @@ def vis_main(method):
             input_channels=1,
             hidden_channels=64
         ).to(device)
+    elif method == 'gan':
+        model = OCTGAN(device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250212_103442'
+    checkpoint_dir = 'checkpoints/best-so-far'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         # Choose the checkpoint that includes 500 inside the filename
-        checkpoint = [c for c in checkpoints if '450' in c][0]
+        checkpoint = [c for c in checkpoints if '500' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
-            checkpoint = torch.load(latest_checkpoint)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            checkpoint = torch.load(latest_checkpoint, map_location=device)
+            if method == 'gan':
+                model.generator.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint['model_state_dict'])
             print(f"Loaded checkpoint: {latest_checkpoint}")
             
             # Visualize model predictions
@@ -70,13 +75,13 @@ def vis_main(method):
 
 def main(method, loss_name, optimizer_choice):
     # Set device
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 8
+    BATCH_SIZE = 6
     NUM_EPOCHS = 500
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 128
+    IMAGE_SIZE = 256
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
     CHECKPOINT_FREQ = 50
@@ -84,11 +89,11 @@ def main(method, loss_name, optimizer_choice):
     # Setup data
     if method == 'interpolation' or method == 'gan':
         train_dataset = RegularDataset(
-            root_dir='/storage/esad/data/OCT/train',
+            root_dir='/mnt/storage1/esad/data/OCT/train',
             image_size=IMAGE_SIZE
         )
         test_dataset = RegularDataset(
-            root_dir='/storage/esad/data/OCT/test',
+            root_dir='/mnt/storage1/esad/data/OCT/test',
             image_size=IMAGE_SIZE
         )
     else:
@@ -154,10 +159,14 @@ def main(method, loss_name, optimizer_choice):
         loss = interpolation_loss
     elif loss_name == 'ssim':
         loss = ssim
-    elif loss_name == 'ssim_l1':
-        loss = ssim_l1
+    elif loss_name == 'ssim_mse':
+        loss = ssim_mse
     elif loss_name == 'gradient':
         loss = gradient_loss
+    elif loss_name == 'psnr':
+        loss = psnr
+    elif loss_name == 'gradient_ssim':
+        loss = gradient_ssim_loss
     
     # Create timestamp for this training run
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -167,7 +176,7 @@ def main(method, loss_name, optimizer_choice):
     logging.basicConfig(
         level=logging.INFO,
         filemode='w',
-        filename='training_2.log',
+        filename='training.log',
         format='%(asctime)s - %(levelname)s - %(message)s',
     )
     
@@ -204,5 +213,5 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved.")
 
 if __name__ == '__main__':
-    # vis_main('interpolation')
-    main('gan', 'gradient', 'gan')
+    vis_main('interpolation')
+    # main('interpolation', 'gradient_ssim', 'adam')

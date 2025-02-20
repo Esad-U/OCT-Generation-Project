@@ -25,16 +25,33 @@ def gradient_loss(pred, target):
     gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
     mse_l = nn.MSELoss()(pred, target)
 
-    return 0.5 * gradient_l + 0.5 * mse_l
+    return 0.4 * gradient_l + 0.6 * mse_l
 
-def psnr(pred, target):
-    return psnr_loss(pred, target, torch.max(pred))
+def gradient_ssim_loss(pred, target):
+    ssim_l = ssim(pred, target)
+    
+    pred = pred.unsqueeze(1)
+    target = target.unsqueeze(1)
 
-def ssim_l1(pred, target, window_size=11):
-    l1 = nn.L1Loss()(pred, target)
+    pred_gradients = sobel(pred)
+    target_gradients = sobel(target)
+
+    gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
+
+    return 0.5 * gradient_l + 0.5 * ssim_l
+
+def psnr(pred, target, alpha=0.1):
+    mse_l = nn.MSELoss()(pred, target)
+    pred = pred / 255.0
+    target = target / 255.0
+    psnr_l = 10 * torch.log10(1.0 / mse_l)
+    return mse_l - alpha * psnr_l
+
+def ssim_mse(pred, target, window_size=11):
+    mse = nn.MSELoss()(pred, target)
     ssim_l = ssim(pred, target)
 
-    return ssim_l + l1
+    return ssim_l + mse
 
 def create_window(window_size, channel=1):
     def gaussian(window_size, sigma):
