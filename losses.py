@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
 
 from utils import reconstruct_image
 from kornia.losses import psnr_loss
@@ -12,6 +13,55 @@ from kornia.filters import sobel
 # TODO: PSNR - yazdım denemedim
 # TODO: Perceptual loss with VGG
 # TODO: SSIM + L1 - yazdım denemedim
+
+
+class PerceptualLoss(nn.Module):
+    def __init__(self, layers=['conv1_2', 'conv2_2', 'conv3_2'], device='cuda'):
+        super(PerceptualLoss, self).__init__()
+        
+        # Load pre-trained VGG16 model
+        vgg = models.vgg16(pretrained=True).features.to(device).eval()
+        
+        # Select layers to extract features
+        self.selected_layers = layers
+        self.vgg_layers = {
+            'conv1_2': 4,
+            'conv2_2': 9,
+            'conv3_2': 16,
+            'conv4_2': 23,
+            'conv5_2': 30
+        }
+
+        self.feature_extractor = nn.Sequential(*list(vgg.children())[:max(self.vgg_layers.values()) + 1])
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False  # Freeze VGG weights
+
+        self.criterion = nn.MSELoss()
+
+    def forward(self, generated, target):
+        """
+        Computes perceptual loss between generated and real images.
+        :param generated: Generated frame (B, C, H, W)
+        :param target: Real frame (B, C, H, W)
+        """
+        loss = 0.0
+        x = generated.unsqueeze(1)
+        y = target.unsqueeze(1)
+
+        x = x.repeat(1, 3, 1, 1)
+        y = y.repeat(1, 3, 1, 1)
+        
+        for name, layer in enumerate(self.feature_extractor):
+            x = layer(x)
+            y = layer(y)
+
+            if name in self.vgg_layers.values():
+                loss += self.criterion(x, y)
+        
+        mse_loss = nn.MSELoss()(generated, target)
+
+        return 0.5 * loss + 0.5 * mse_loss
+
 
 def gradient_loss(pred, target):
     # pred and target are of shape (B, H, W)

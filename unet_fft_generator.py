@@ -8,7 +8,7 @@ from datetime import datetime
 from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator
 from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset
-from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss
+from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss
 from train import train, train_interpolation, train_diffusion
 from visualize import visualize_dataset_sample, visualize_model_predictions, plot_losses
 
@@ -19,8 +19,8 @@ def vis_main(method):
     # Load dataset
     if method == 'interpolation' or method == 'gan':
         dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/test',
-            image_size=256
+            root_dir='/storage/esad/data/OCT/test',
+            image_size=128
         )
     else:
         dataset = ComplexFourierDataset(
@@ -55,7 +55,7 @@ def vis_main(method):
         model = OCTGAN(device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/best-so-far'
+    checkpoint_dir = 'checkpoints/checkpoints_20250220_214321'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         # Choose the checkpoint that includes 500 inside the filename
@@ -78,10 +78,10 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 6
+    BATCH_SIZE = 8
     NUM_EPOCHS = 500
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 256
+    IMAGE_SIZE = 128
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
     CHECKPOINT_FREQ = 50
@@ -89,11 +89,11 @@ def main(method, loss_name, optimizer_choice):
     # Setup data
     if method == 'interpolation' or method == 'gan':
         train_dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/train',
+            root_dir='/storage/esad/data/OCT/train',
             image_size=IMAGE_SIZE
         )
         test_dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/test',
+            root_dir='/storage/esad/data/OCT/test',
             image_size=IMAGE_SIZE
         )
     else:
@@ -167,6 +167,8 @@ def main(method, loss_name, optimizer_choice):
         loss = psnr
     elif loss_name == 'gradient_ssim':
         loss = gradient_ssim_loss
+    elif loss_name == 'perceptual':
+        loss = PerceptualLoss(device=device)
     
     # Create timestamp for this training run
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -214,4 +216,4 @@ def main(method, loss_name, optimizer_choice):
 
 if __name__ == '__main__':
     vis_main('interpolation')
-    # main('interpolation', 'gradient_ssim', 'adam')
+    # main('interpolation', 'perceptual', 'adam')

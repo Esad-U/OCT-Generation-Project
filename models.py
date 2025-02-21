@@ -202,7 +202,6 @@ class InterpolationUNet(nn.Module):
         
         return self.outc(x).squeeze(1)
 
-
 class DiffusionInterpolator(nn.Module):
     def __init__(self, input_channels, hidden_channels, device='cuda', timesteps=1000):
         super().__init__()
