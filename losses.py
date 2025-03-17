@@ -179,18 +179,18 @@ def combined_loss(pred, target, fourier_weight=0.5):
     # Spatial domain loss
     pred_tmp = pred.cpu().detach().numpy()
     target_tmp = target.cpu().detach().numpy()
-    reconstructed_pred = torch.from_numpy(reconstruct_image(pred_tmp[:, 0], pred_tmp[:, 1]))
-    reconstructed_target = torch.from_numpy(reconstruct_image(target_tmp[:, 0], target_tmp[:, 1]))
-    spatial_loss = nn.MSELoss()(reconstructed_pred, reconstructed_target)
+    reconstructed_pred = torch.from_numpy(reconstruct_image(pred_tmp[:, 0], pred_tmp[:, 1])).float()
+    reconstructed_target = torch.from_numpy(reconstruct_image(target_tmp[:, 0], target_tmp[:, 1])).float()
+    spatial_loss = ssim(reconstructed_pred, reconstructed_target)
     
     # Fourier domain loss
-    fourier_loss = nn.MSELoss()(pred, target)
+    fourier_loss = separate_loss(pred, target)
     
     # Combine both losses
     total_loss = (1 - fourier_weight) * spatial_loss + fourier_weight * fourier_loss
     return total_loss
 
-def separate_loss(pred, target, phase_weight=0.7):
+def separate_loss(pred, target, phase_weight=0.5):
     # Magnitude loss
     mag_loss = nn.L1Loss()(pred[:, 0], target[:, 0])
     

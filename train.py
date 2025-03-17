@@ -97,10 +97,11 @@ def train(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoin
                 # Setup 2
                 # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
                 # Setup 3
-                noise = torch.rand(even_frames[:, t].shape).to(device)
+                # noise = torch.rand(even_frames[:, t].shape).to(device)
                 
                 # Generate even frame
-                generated = model(noise, condition, time)
+                # generated = model(noise, condition, time)
+                generated = model(condition, time)
                 
                 # Calculate loss (MSE for both magnitude and phase)
                 loss = loss_fn(generated, even_frames[:, t])

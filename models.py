@@ -9,7 +9,8 @@ class ComplexUNetLarge(nn.Module):
         super().__init__()
         
         # Double the channels to handle both magnitude and phase
-        self.input_channels = input_channels * 2
+        # self.input_channels = input_channels * 2
+        self.input_channels = 0
         self.condition_channels = condition_channels * 2
         
         # Enhanced time embedding
@@ -51,7 +52,7 @@ class ComplexUNetLarge(nn.Module):
         self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)  # 2 due to skip connection
         
         # Output layer
-        self.outc = nn.Conv2d(hidden_channels, self.input_channels, kernel_size=1)
+        self.outc = nn.Conv2d(hidden_channels, 2, kernel_size=1)
     
     def _double_conv(self, in_channels, out_channels):
         return nn.Sequential(
@@ -70,14 +71,15 @@ class ComplexUNetLarge(nn.Module):
             self._double_conv(in_channels, out_channels)
         )
     
-    def forward(self, x, condition, t):
+    def forward(self, condition, t):
         # Time embedding
         t = self.time_mlp(t.float().view(-1, 1))
-        t = t.view(-1, t.shape[-1], 1, 1).expand(-1, -1, x.shape[-2], x.shape[-1])
+        t = t.view(-1, t.shape[-1], 1, 1).expand(-1, -1, condition.shape[-2], condition.shape[-1])
         
         # Initial concatenation
-        x = torch.cat([x, condition, t], dim=1)
-        
+        # x = torch.cat([x, condition, t], dim=1)
+        x = torch.cat([condition, t], dim=1)
+
         # Encoder path with skip connections
         x1 = self.inc(x)
         x2 = self.down1(x1)

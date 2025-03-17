@@ -220,12 +220,13 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
                     # Create time tensor
                     time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
                     
-                    noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+                    # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
                     # noise = torch.rand(original_even_frames[:, t].shape).to(device)
                     # noise = original_even_frames[:, t]
 
                     # Generate even frame
-                    generated = model(noise, condition, time)
+                    # generated = model(noise, condition, time)
+                    generated = model(condition, time)
                 elif method == 'interpolation':
                     frame1 = odd_frames[:, t]
                     frame2 = odd_frames[:, t+1]

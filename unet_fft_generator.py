@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 
 from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator
-from octgan import OCTGAN
+from tsgan import GeneratorUNet, DiscriminatorResNet, train_tsgan
+# from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset
 from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss
 from train import train, train_interpolation, train_diffusion
@@ -55,11 +56,11 @@ def vis_main(method):
         model = OCTGAN(device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250220_214321'
+    checkpoint_dir = 'checkpoints/checkpoints_20250312_133849'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
         # Choose the checkpoint that includes 500 inside the filename
-        checkpoint = [c for c in checkpoints if '500' in c][0]
+        checkpoint = [c for c in checkpoints if '450' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint, map_location=device)
@@ -87,7 +88,7 @@ def main(method, loss_name, optimizer_choice):
     CHECKPOINT_FREQ = 50
     
     # Setup data
-    if method == 'interpolation' or method == 'gan':
+    if method == 'interpolation' or method == 'gan' or method == 'tsgan':
         train_dataset = RegularDataset(
             root_dir='/storage/esad/data/OCT/train',
             image_size=IMAGE_SIZE
@@ -97,8 +98,12 @@ def main(method, loss_name, optimizer_choice):
             image_size=IMAGE_SIZE
         )
     else:
-        dataset = ComplexFourierDataset(
+        train_dataset = ComplexFourierDataset(
             root_dir='/storage/esad/data/OCT/train',
+            image_size=IMAGE_SIZE
+        )
+        test_dataset = ComplexFourierDataset(
+            root_dir='/storage/esad/data/OCT/test',
             image_size=IMAGE_SIZE
         )
 
@@ -140,7 +145,12 @@ def main(method, loss_name, optimizer_choice):
         model = OCTGAN(
             device=device
         )
-    
+    elif method == 'tsgan':
+        generator1 = GeneratorUNet()
+        discriminator1 = DiscriminatorResNet()
+        generator2 = GeneratorUNet()
+        discriminator2 = DiscriminatorResNet()
+
     # Setup optimizer
     if optimizer_choice == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
@@ -185,13 +195,15 @@ def main(method, loss_name, optimizer_choice):
     # Start training
     if method == 'gan':
         logging.info(f"Starting training...\nMethod: OCTGAN")
+    if method == 'tsgan':
+        logging.info(f"Starting training...\Method: TSGAN")
     else:
         logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
                         \nOptimizer: {optimizer_choice}\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
                         \nLearning Rate: {LEARNING_RATE}\nDevice: {device}")
 
     if method == 'unet':
-        train(model, train_loader, optimizer, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
+        train(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'interpolation':
         train_loss, test_loss = train_interpolation(model, train_loader, test_loader, optimizer, loss, device, NUM_EPOCHS, 
                                                             CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
@@ -199,6 +211,8 @@ def main(method, loss_name, optimizer_choice):
         train_diffusion(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'gan':
         model.train(train_loader, NUM_EPOCHS, checkpoint_dir, CHECKPOINT_FREQ)
+    elif method == 'tsgan':
+        train_tsgan(generator1, discriminator1, generator2, discriminator2, train_loader, CHECKPOINT_FREQ, checkpoint_dir, NUM_EPOCHS)
 
     # Save final model
     if method == 'gan':
@@ -215,5 +229,5 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved.")
 
 if __name__ == '__main__':
-    vis_main('interpolation')
-    # main('interpolation', 'perceptual', 'adam')
+    # vis_main('unet')
+    main('unet', 'combined', 'adam')
