@@ -154,10 +154,21 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
             
             total_loss = 0
             for t in range(even_frames.shape[1]):
-                frame1 = odd_frames[:, t]
-                frame2 = odd_frames[:, t+1]
-                predicted = model(frame1, frame2)
-                loss = loss_fn(predicted, even_frames[:, t])
+                pre = odd_frames[:, t]
+                post = odd_frames[:, t+1]
+                central = even_frames[:, t]
+
+                central_fake = model(pre, post)
+                pre_central = model(pre, central)
+                central_post = model(central, post)
+                central_fake_2 = model(pre_central, central_post)
+
+                cf_loss = nn.MSELoss()(central_fake, central)
+                cf2_loss = nn.L1Loss()(central_fake_2, central)
+
+                # loss = loss_fn(central_fake, central) + loss_fn(central_fake_2, central)
+                loss = cf_loss + cf2_loss
+                
                 total_loss += loss
             
             total_loss.backward()
@@ -182,10 +193,20 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
                 
                 batch_loss = 0
                 for t in range(even_frames.shape[1]):
-                    frame1 = odd_frames[:, t]
-                    frame2 = odd_frames[:, t+1]
-                    predicted = model(frame1, frame2)
-                    loss = loss_fn(predicted, even_frames[:, t])
+                    pre = odd_frames[:, t]
+                    post = odd_frames[:, t+1]
+                    central = even_frames[:, t]
+
+                    central_fake = model(pre, post)
+                    pre_central = model(pre, central)
+                    central_post = model(central, post)
+                    central_fake_2 = model(pre_central, central_post)
+
+                    cf_loss = nn.MSELoss()(central_fake, central)
+                    cf2_loss = nn.L1Loss()(central_fake_2, central)
+
+                    # loss = loss_fn(central_fake, central) + loss_fn(central_fake_2, central)
+                    loss = cf_loss + cf2_loss
                     batch_loss += loss
                 
                 test_loss += batch_loss.item()

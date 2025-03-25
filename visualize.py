@@ -205,39 +205,39 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
     
     with torch.no_grad():
         # Generate each even frame
-        if method == 'gan':
-            generated_frames = model.generate_sequence(odd_frames)
-            generated_frames = generated_frames.squeeze().cpu()
-        else:
-            for t in range(original_even_frames.shape[1]):
-                # Get surrounding odd frames as condition
-                if method == 'unet':
-                    if t < original_even_frames.shape[1] - 1:
-                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                    else:
-                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                    
-                    # Create time tensor
-                    time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
-                    
-                    # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
-                    # noise = torch.rand(original_even_frames[:, t].shape).to(device)
-                    # noise = original_even_frames[:, t]
-
-                    # Generate even frame
-                    # generated = model(noise, condition, time)
-                    generated = model(condition, time)
-                elif method == 'interpolation':
-                    frame1 = odd_frames[:, t]
-                    frame2 = odd_frames[:, t+1]
-                    generated = model(frame1, frame2)
-                elif method == 'diffusion':
+        for t in range(original_even_frames.shape[1]):
+            # Get surrounding odd frames as condition
+            if method == 'unet':
+                if t < original_even_frames.shape[1] - 1:
                     condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
-                    generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
+                else:
+                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                 
+                # Create time tensor
+                time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
+                    
+                # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+                # noise = torch.rand(original_even_frames[:, t].shape).to(device)
+                # noise = original_even_frames[:, t]
 
-                generated_frames.append(generated.cpu().squeeze())
+                # Generate even frame
+                # generated = model(noise, condition, time)
+                generated = model(condition, time)
+            elif method == 'interpolation':
+                frame1 = odd_frames[:, t]
+                frame2 = odd_frames[:, t+1]
+                generated = model(frame1, frame2)
+            elif method == 'gan':
+                frame1 = odd_frames[:, t].unsqueeze(1)
+                frame2 = odd_frames[:, t+1].unsqueeze(1)
+                generated = model.generator(frame1, frame2)
+            elif method == 'diffusion':
+                condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
+
+            generated_frames.append(generated.cpu().squeeze())
         
-            generated_frames = torch.stack(generated_frames)
+        generated_frames = torch.stack(generated_frames)
     
     if method == 'interpolation' or method == 'gan':
         visualize_interpolations(
@@ -280,6 +280,37 @@ def plot_losses(train_losses, test_losses, save_path=None):
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend()
     
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+import matplotlib.pyplot as plt
+
+def plot_losses_gan(gen_losses, disc_losses, fft_disc_losses, save_path=None):
+    """
+    Visualizes Generator Loss, Discriminator Loss, and FFT Discriminator Loss on one plot.
+    
+    Parameters:
+    - gen_losses (list): List of Generator losses.
+    - disc_losses (list): List of Discriminator losses.
+    - fft_disc_losses (list): List of FFT Discriminator losses.
+    """
+    epochs = range(1, len(gen_losses) + 1)  # Assuming the losses are recorded per epoch
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, gen_losses, label='Generator Loss', color='blue')
+    plt.plot(epochs, disc_losses, label='Discriminator Loss', color='red')
+    plt.plot(epochs, fft_disc_losses, label='FFT Discriminator Loss', color='green')
+    
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Generator, Discriminator and FFT Discriminator Losses')
+    plt.legend()
+    plt.grid(True)
     plt.tight_layout()
     
     if save_path:

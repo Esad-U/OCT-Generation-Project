@@ -45,11 +45,9 @@ class PerceptualLoss(nn.Module):
         :param target: Real frame (B, C, H, W)
         """
         loss = 0.0
-        x = generated.unsqueeze(1)
-        y = target.unsqueeze(1)
 
-        x = x.repeat(1, 3, 1, 1)
-        y = y.repeat(1, 3, 1, 1)
+        x = generated.repeat(1, 3, 1, 1)
+        y = target.repeat(1, 3, 1, 1)
         
         for name, layer in enumerate(self.feature_extractor):
             x = layer(x)
@@ -58,9 +56,7 @@ class PerceptualLoss(nn.Module):
             if name in self.vgg_layers.values():
                 loss += self.criterion(x, y)
         
-        mse_loss = nn.MSELoss()(generated, target)
-
-        return 0.5 * loss + 0.5 * mse_loss
+        return loss
 
 
 def gradient_loss(pred, target):
