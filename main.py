@@ -236,5 +236,5 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    vis_main('gan')
-    # main('gan', '', '')
+    # vis_main('gan')
+    main('gan', '', '')

@@ -142,44 +142,98 @@ class Discriminator(nn.Module):
     def forward(self, x):
         return self.model(x).view(-1, 1)  # Output shape: (batch, 1), probability of being real
 
-
 class FFTDiscriminator(nn.Module):
     def __init__(self, input_channels=3, hidden_channels=16):
         super().__init__()
+        # Double the input channels to accommodate both real and imaginary parts
+        self.fft_channels = input_channels * 2
+        
         self.model = nn.Sequential(
-            nn.Conv2d(input_channels, hidden_channels, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(self.fft_channels, hidden_channels, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.Conv2d(hidden_channels, hidden_channels * 2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(hidden_channels * 2),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.Conv2d(hidden_channels * 2, hidden_channels * 4, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(hidden_channels * 4),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.Conv2d(hidden_channels * 4, hidden_channels * 8, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(hidden_channels * 8),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.Conv2d(hidden_channels * 8, hidden_channels * 16, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(hidden_channels * 16),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.AdaptiveAvgPool2d(1),  # Force output to be 1x1 regardless of input size
             nn.Conv2d(hidden_channels * 16, 1, kernel_size=1),
             nn.Sigmoid()
         )
     
     def fft_transform(self, img):
-        fft = torch.fft.fft2(img, norm='ortho')  # Compute 2D FFT
-        magnitude = torch.abs(fft)  # Get magnitude spectrum
-        return magnitude
+        # Compute 2D FFT
+        fft = torch.fft.fft2(img, norm='ortho')
+        
+        # Extract real and imaginary components
+        real_part = fft.real
+        imag_part = fft.imag
+        
+        # Stack real and imaginary parts along the channel dimension
+        # For each input channel, we now have two channels (real and imaginary)
+        batch_size, channels, height, width = img.shape
+        fft_components = torch.empty(batch_size, channels * 2, height, width, device=img.device)
+        
+        for c in range(channels):
+            fft_components[:, c*2, :, :] = real_part[:, c, :, :]
+            fft_components[:, c*2+1, :, :] = imag_part[:, c, :, :]
+            
+        return fft_components
     
     def forward(self, img):
-        fft_img = self.fft_transform(img)  # Convert image to frequency domain
-        # print(fft_img.shape)
+        # Transform image to frequency domain representation with both real and imaginary parts
+        fft_img = self.fft_transform(img)
         return self.model(fft_img).view(-1, 1)
+
+# class FFTDiscriminator(nn.Module):
+#     def __init__(self, input_channels=3, hidden_channels=16):
+#         super().__init__()
+#         self.model = nn.Sequential(
+#             nn.Conv2d(input_channels, hidden_channels, kernel_size=4, stride=2, padding=1),
+#             nn.LeakyReLU(0.2, inplace=True),
+
+#             nn.Conv2d(hidden_channels, hidden_channels * 2, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(hidden_channels * 2),
+#             nn.LeakyReLU(0.2, inplace=True),
+
+#             nn.Conv2d(hidden_channels * 2, hidden_channels * 4, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(hidden_channels * 4),
+#             nn.LeakyReLU(0.2, inplace=True),
+
+#             nn.Conv2d(hidden_channels * 4, hidden_channels * 8, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(hidden_channels * 8),
+#             nn.LeakyReLU(0.2, inplace=True),
+
+#             nn.Conv2d(hidden_channels * 8, hidden_channels * 16, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(hidden_channels * 16),
+#             nn.LeakyReLU(0.2, inplace=True),
+
+#             nn.AdaptiveAvgPool2d(1),  # Force output to be 1x1 regardless of input size
+#             nn.Conv2d(hidden_channels * 16, 1, kernel_size=1),
+#             nn.Sigmoid()
+#         )
+    
+#     def fft_transform(self, img):
+#         fft = torch.fft.fft2(img, norm='ortho')  # Compute 2D FFT
+#         magnitude = torch.abs(fft)  # Get magnitude spectrum
+#         return magnitude
+    
+#     def forward(self, img):
+#         fft_img = self.fft_transform(img)  # Convert image to frequency domain
+#         # print(fft_img.shape)
+#         return self.model(fft_img).view(-1, 1)
 
 
 class OCTGAN():
@@ -249,7 +303,7 @@ class OCTGAN():
                     central_fake = self.generator(pre, post).unsqueeze(1)
                     pre_central = self.generator(pre, central).unsqueeze(1)
                     central_post = self.generator(central, post).unsqueeze(1)
-                    central_fake_2 = self.generator(pre_central, central_post)
+                    # central_fake_2 = self.generator(pre_central, central_post)
                     fake_combined = torch.cat([pre_central, central_fake, central_post], dim=0)
                     fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1)
 
