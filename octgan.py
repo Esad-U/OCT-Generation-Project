@@ -266,18 +266,20 @@ class OCTGAN():
         scheduler_d = optim.lr_scheduler.ExponentialLR(optimizer_d, gamma=0.95)
         scheduler_f = optim.lr_scheduler.ExponentialLR(optimizer_fft_d, gamma=0.95)
 
-        logging.info("Label smoothing is applied. FFT open. L1 used")
+        logging.info("Label smoothing is not applied. FFT open. L1 used")
         
         for epoch in range(num_epochs):
             # Training phase
             
             # Create real and fake labels
-            # real_labels = torch.ones(batch_size, 1, device=self.device)
-            # fake_labels = torch.zeros(batch_size, 1, device=self.device)
-            real_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1 + 0.9
-            fake_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1
-            real_labels_f = torch.rand(batch_size, 1, device=self.device) * 0.1 + 0.9
-            fake_labels_f = torch.rand(batch_size, 1, device=self.device) * 0.1
+            real_labels_d = torch.ones(3*batch_size, 1, device=self.device)
+            fake_labels_d = torch.zeros(3*batch_size, 1, device=self.device)
+            real_labels_f = torch.ones(batch_size, 1, device=self.device)
+            fake_labels_f = torch.zeros(batch_size, 1, device=self.device)
+            # real_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1 + 0.9
+            # fake_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1
+            # real_labels_f = torch.rand(batch_size, 1, device=self.device) * 0.1 + 0.9
+            # fake_labels_f = torch.rand(batch_size, 1, device=self.device) * 0.1
 
             # Initialize epoch losses
             epoch_loss_g = 0
@@ -379,3 +381,110 @@ class OCTGAN():
                 logging.info(f'Saved checkpoint to {checkpoint_path}')
 
         return g_losses, d_losses, fd_losses
+
+    def train_no_fft(self, train_loader, num_epochs, checkpoint_freq, batch_size, lr=0.0002, beta1=0.5, log_interval=10, checkpoint_dir='checkpoints'):
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        g_losses = []
+        d_losses = []
+
+        criterion = nn.BCELoss()
+        criterion_fd = nn.BCELoss()
+        # gen_loss = PerceptualLoss()
+        gen_loss = nn.L1Loss()
+
+        optimizer_g = optim.Adam(self.generator.parameters(), lr=lr, betas=(beta1, 0.999))
+        optimizer_d = optim.Adam(self.discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
+
+        # Add learning rate schedulers
+        scheduler_g = optim.lr_scheduler.ExponentialLR(optimizer_g, gamma=0.95)
+        scheduler_d = optim.lr_scheduler.ExponentialLR(optimizer_d, gamma=0.95)
+
+        for epoch in range(num_epochs):
+            # Training phase
+            
+            # Create real and fake labels
+            real_labels_d = torch.ones(3*batch_size, 1, device=self.device)
+            fake_labels_d = torch.zeros(3*batch_size, 1, device=self.device)
+            # real_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1 + 0.9
+            # fake_labels_d = torch.rand(3*batch_size, 1, device=self.device) * 0.1
+
+            # Initialize epoch losses
+            epoch_loss_g = 0
+            epoch_loss_d = 0
+            epoch_loss_fd = 0
+
+            for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
+                odd_frames = odd_frames.to(self.device)
+                even_frames = even_frames.to(self.device)
+
+                total_lg = 0
+                total_ld = 0
+                total_lfd = 0
+                
+                for t in range(even_frames.shape[1]):
+                    pre = odd_frames[:, t].unsqueeze(1)
+                    post = odd_frames[:, t+1].unsqueeze(1)
+                    central = even_frames[:, t].unsqueeze(1)
+
+                    real_combined = torch.cat([pre, central, post], dim=0)
+                    real_sequence = torch.cat([pre, central, post], dim=1)
+
+                    central_fake = self.generator(pre, post).unsqueeze(1)
+                    pre_central = self.generator(pre, central).unsqueeze(1)
+                    central_post = self.generator(central, post).unsqueeze(1)
+                    # central_fake_2 = self.generator(pre_central, central_post)
+                    fake_combined = torch.cat([pre_central, central_fake, central_post], dim=0)
+                    fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1)
+
+                    # Train regular discriminator
+                    self.discriminator.train()
+                    optimizer_d.zero_grad()
+                    real_outputs = self.discriminator(real_combined)
+                    real_loss = criterion(real_outputs, real_labels_d)
+                    
+                    fake_outputs = self.discriminator(fake_combined.detach())
+                    fake_loss = criterion(fake_outputs, fake_labels_d)
+
+                    d_loss = real_loss + fake_loss
+                    d_loss.backward()
+                    optimizer_d.step()
+                    total_ld += d_loss.item()
+
+                    # Train Generator
+                    self.generator.train()
+                    self.discriminator.eval()
+                    optimizer_g.zero_grad()
+                    fakes_loss = gen_loss(central_fake, central)
+
+                    fake_outputs_d = self.discriminator(fake_combined)
+                    g_loss = fakes_loss + criterion(fake_outputs_d, real_labels_d) 
+                    g_loss.backward()
+                    optimizer_g.step()
+                    total_lg += g_loss.item()
+                
+                if batch_idx % log_interval == 0:
+                    logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                                    f'Generator Loss: {total_lg:.4f} - Discriminator Loss: {total_ld:.4f}')
+
+                epoch_loss_g += total_lg
+                epoch_loss_d += total_ld
+
+            epoch_loss_g /= len(train_loader)
+            epoch_loss_d /= len(train_loader)
+
+            g_losses.append(epoch_loss_g)
+            d_losses.append(epoch_loss_d)
+
+            scheduler_g.step()
+            scheduler_d.step()
+
+            if (epoch + 1) % checkpoint_freq == 0:
+                checkpoint_path = os.path.join(checkpoint_dir, f'gen_epoch_{epoch+1}.pt')
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.generator.state_dict(),
+                    'optimizer_state_dict': optimizer_g.state_dict(),
+                }, checkpoint_path)
+                logging.info(f'Saved checkpoint to {checkpoint_path}')
+
+        return g_losses, d_losses
