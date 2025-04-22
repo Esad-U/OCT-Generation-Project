@@ -3,6 +3,8 @@ import torch.nn as nn
 import logging
 import os
 
+from losses import fft3d_loss
+
 def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     os.makedirs(checkpoint_dir, exist_ok=True)
     
@@ -146,28 +148,36 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
         # Training phase
         model.train()
         epoch_loss = 0.0
-        for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
-            odd_frames = odd_frames.to(device)
-            even_frames = even_frames.to(device)
+        for batch_idx, sequence in enumerate(train_loader):
+            # odd_frames = odd_frames.to(device)
+            # even_frames = even_frames.to(device)
+            sequence = sequence.to(device)
             
             optimizer.zero_grad()
             
             total_loss = 0
-            for t in range(even_frames.shape[1]):
-                pre = odd_frames[:, t]
-                post = odd_frames[:, t+1]
-                central = even_frames[:, t]
+            for t in range(sequence.shape[1]):
+                if t == 17:
+                    break
+                pre = sequence[:, t].unsqueeze(1)
+                central = sequence[:, t+1].unsqueeze(1)
+                post = sequence[:, t+2].unsqueeze(1)
 
-                central_fake = model(pre, post)
-                pre_central = model(pre, central)
-                central_post = model(central, post)
-                central_fake_2 = model(pre_central, central_post)
+                central_fake = model(pre, post).unsqueeze(1)
+                pre_central = model(pre, central).unsqueeze(1)
+                central_post = model(central, post).unsqueeze(1)
+                central_fake_2 = model(pre_central, central_post).unsqueeze(1)
+
+                fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
+                real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
+
+                fft_loss = fft3d_loss(fake_combined, real_combined)
 
                 cf_loss = nn.MSELoss()(central_fake, central)
                 cf2_loss = nn.L1Loss()(central_fake_2, central)
 
-                # loss = loss_fn(central_fake, central) + loss_fn(central_fake_2, central)
-                loss = cf_loss + cf2_loss
+                loss = loss_fn(central_fake, central) + fft_loss
+                # loss = cf_loss + cf2_loss
                 
                 total_loss += loss
             
@@ -187,26 +197,34 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
         model.eval()
         test_loss = 0.0
         with torch.no_grad():
-            for odd_frames, even_frames in test_loader:
-                odd_frames = odd_frames.to(device)
-                even_frames = even_frames.to(device)
+            for sequence in test_loader:
+                # odd_frames = odd_frames.to(device)
+                # even_frames = even_frames.to(device)
+                sequence = sequence.to(device)
                 
                 batch_loss = 0
-                for t in range(even_frames.shape[1]):
-                    pre = odd_frames[:, t]
-                    post = odd_frames[:, t+1]
-                    central = even_frames[:, t]
+                for t in range(sequence.shape[1]):
+                    if t == 17:
+                        break
 
-                    central_fake = model(pre, post)
-                    pre_central = model(pre, central)
-                    central_post = model(central, post)
-                    central_fake_2 = model(pre_central, central_post)
+                    pre = sequence[:, t].unsqueeze(1)
+                    post = sequence[:, t+2].unsqueeze(1)
+                    central = sequence[:, t+1].unsqueeze(1)
 
-                    cf_loss = nn.MSELoss()(central_fake, central)
-                    cf2_loss = nn.L1Loss()(central_fake_2, central)
+                    central_fake = model(pre, post).unsqueeze(1)
+                    pre_central = model(pre, central).unsqueeze(1)
+                    central_post = model(central, post).unsqueeze(1)
+                    central_fake_2 = model(pre_central, central_post).unsqueeze(1)
 
-                    # loss = loss_fn(central_fake, central) + loss_fn(central_fake_2, central)
-                    loss = cf_loss + cf2_loss
+                    # cf_loss = nn.MSELoss()(central_fake, central)
+                    # cf2_loss = nn.L1Loss()(central_fake_2, central)
+
+                    fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
+                    real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
+
+                    fft_loss = fft3d_loss(fake_combined, real_combined)
+                    loss = loss_fn(central_fake, central) + fft_loss
+                    # loss = cf_loss + cf2_loss
                     batch_loss += loss
                 
                 test_loss += batch_loss.item()

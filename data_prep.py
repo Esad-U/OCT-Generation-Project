@@ -1,7 +1,41 @@
 import os
 
+def rename_directories_numerically(root_dir):
+    """
+    Rename directories in the specified root directory to numerical values.
+    
+    Parameters:
+    - root_dir (str): The path to the root directory containing folders to rename.
+    """
+    # List all directories in the root directory
+    folders = os.listdir(root_dir)
+    
+    # Sort the folders to ensure consistent ordering
+    folders.sort()
+    
+    # Rename each folder numerically
+    for i, folder_name in enumerate(folders):
+        folder_path = os.path.join(root_dir, folder_name)
+        # Ensure the path is a directory
+        if not os.path.isdir(folder_path):
+            continue
+        
+        new_folder_name = f"{i+495}"
+        new_folder_path = os.path.join(root_dir, new_folder_name)
+        
+        # Rename the folder
+        os.rename(folder_path, new_folder_path)
+        print(f"Renamed: {folder_name} -> {new_folder_name}")
+
 def rename_files_in_directory(root_dir):
     for folder_name in os.listdir(root_dir):
+        try:
+            if int(folder_name) < 495:
+                continue
+        except ValueError:
+            print(folder_name)
+            continue
+
         folder_path = os.path.join(root_dir, folder_name)
         # Ensure the path is a directory
         if not os.path.isdir(folder_path):
@@ -9,26 +43,30 @@ def rename_files_in_directory(root_dir):
         
         for file_name in os.listdir(folder_path):
             # Check if it's a JPEG file
-            if file_name.endswith('.jpeg'):
+            if file_name.endswith('.png') and 'ayna' in file_name:
                 # Extract the number from the file name
                 parts = file_name.split('_')
-                number_part = None
+                print(parts)
+                number_part = parts[-2]
                 
                 # Check for 'flipped' or directly the numeric part
-                if parts[-1].startswith('flipped'):
-                    number_part = parts[-1].replace('flipped_', '').replace('.jpeg', '')
-                else:
-                    # Assume the last part contains the number without 'flipped'
-                    number_part = parts[-1].replace('.jpeg', '')
+                # if parts[-1].startswith('flipped'):
+                #     number_part = parts[-1].replace('flipped_', '').replace('.png', '')
+                # else:
+                #     # Assume the last part contains the number without 'flipped'
+                #     # number_part = parts[-1].replace('.png', '')
+                #     numper_part = parts[-2]
+                #     print(number_part)
                 
                 # Format the number to two digits
                 if number_part and number_part.isdigit():
-                    new_name = f"{int(number_part):02d}.jpeg"
+                    new_name = f"{int(number_part):02d}.png"
                     old_path = os.path.join(folder_path, file_name)
                     new_path = os.path.join(folder_path, new_name)
                     os.rename(old_path, new_path)
                     print(f"Renamed: {file_name} -> {new_name}")
 
 # Specify your root directory path
-root_data_directory = '/mnt/storage1/esad/data/HILAL_OCT/organized/'
+root_data_directory = '/mnt/storage1/esad/data/OCT/organized/'
 rename_files_in_directory(root_data_directory)
+# rename_directories_numerically(root_data_directory)

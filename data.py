@@ -97,11 +97,11 @@ class RegularDataset(Dataset):
 
             sequence.append(image)
 
-        sequence = np.stack(sequence, axis=0)  # Shape: (19, 2, H, W)
+        sequence = np.stack(sequence, axis=0)  # Shape: (19, H, W)
         sequence = torch.tensor(sequence, dtype=torch.float32)
         
         # Split into odd and even frames
-        odd_frames = sequence[::2]  # Shape: (10, 2, H, W)
-        even_frames = sequence[1::2]  # Shape: (9, 2, H, W)
+        # odd_frames = sequence[::2]  # Shape: (10, H, W)
+        # even_frames = sequence[1::2]  # Shape: (9, H, W)
 
-        return odd_frames, even_frames
+        return sequence

@@ -178,8 +178,6 @@ class InterpolationUNet(nn.Module):
         )
     
     def forward(self, frame1, frame2):
-        frame1 = frame1.reshape((frame1.shape[0], 1, frame1.shape[1], frame1.shape[2]))
-        frame2 = frame2.reshape((frame2.shape[0], 1, frame2.shape[1], frame2.shape[2]))
         # Concatenate input frames
         x = torch.cat([frame1, frame2], dim=1)
         

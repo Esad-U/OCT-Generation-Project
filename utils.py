@@ -45,4 +45,3 @@ def sample_diffusion(model, condition, device, shape):
     # print(x.shape)
     return x
 
-

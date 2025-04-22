@@ -111,7 +111,9 @@ def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
     Visualize a single sample from the dataset, showing both the Fourier components
     and reconstructed images.
     """
-    odd_frames, even_frames = dataset[sample_idx]
+    sequence = dataset[sample_idx]
+    odd_frames = sequence[::2]  # Shape: (10, H, W)
+    even_frames = sequence[1::2]  # Shape: (9, H, W)
 
     if method == 'interpolation' or method == 'gan':
         # Create figure for reconstructed images
@@ -197,10 +199,13 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
         model.eval()
     
     # Get sample data
-    odd_frames, original_even_frames = dataset[sample_idx]
-    odd_frames = odd_frames.unsqueeze(0).to(device)
-    original_even_frames = original_even_frames.unsqueeze(0).to(device)
-    
+    # odd_frames, original_even_frames = dataset[sample_idx]
+    # odd_frames = odd_frames.unsqueeze(0).to(device)
+    # original_even_frames = original_even_frames.unsqueeze(0).to(device)
+    sequence = dataset[sample_idx]
+    sequence = sequence.unsqueeze(0).to(device)
+    odd_frames = sequence[:, ::2]
+    original_even_frames = sequence[:, 1::2]
     generated_frames = []
     
     with torch.no_grad():
@@ -224,8 +229,8 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
                 # generated = model(noise, condition, time)
                 generated = model(condition, time)
             elif method == 'interpolation':
-                frame1 = odd_frames[:, t]
-                frame2 = odd_frames[:, t+1]
+                frame1 = odd_frames[:, t].unsqueeze(1)
+                frame2 = odd_frames[:, t+1].unsqueeze(1)
                 generated = model(frame1, frame2)
             elif method == 'gan':
                 frame1 = odd_frames[:, t].unsqueeze(1)
@@ -287,8 +292,6 @@ def plot_losses(train_losses, test_losses, save_path=None):
         plt.close()
     else:
         plt.show()
-
-import matplotlib.pyplot as plt
 
 def plot_losses_gan(gen_losses, disc_losses, fft_disc_losses, save_path=None):
     """

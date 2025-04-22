@@ -13,6 +13,32 @@ from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_
 from train import train, train_interpolation, train_diffusion
 from visualize import plot_losses_gan, visualize_dataset_sample, visualize_model_predictions, plot_losses
 
+def fft_visualize():
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    dataset = ComplexFourierDataset(
+        root_dir='/mnt/storage1/esad/data/OCT/test',  # Update with your data path
+        image_size=128
+    )
+    dataset_regular = RegularDataset(
+        root_dir='/mnt/storage1/esad/data/OCT/test',
+        image_size=128
+    )
+
+    a = dataset_regular[0][0][0].unsqueeze(0).unsqueeze(0).to(device)
+
+    model = OCTGAN(hidden_channels_g=64, hidden_channels_d=64, device=device)
+
+    a_fft = model.fft_discriminator.fft_transform(a)
+
+    print(a_fft[0][1])
+    
+    # Visualize a few dataset samples
+    for i in range(3):  # Visualize first 3 samples
+        visualize_dataset_sample(dataset, 'lele', sample_idx=i, 
+                                    save_path=f'visualizations/sample_{i}')
+
 def vis_main(method):
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -21,7 +47,7 @@ def vis_main(method):
     if method == 'interpolation' or method == 'gan':
         dataset = RegularDataset(
             root_dir='/mnt/storage1/esad/data/OCT/test',
-            image_size=256
+            image_size=128
         )
     else:
         dataset = ComplexFourierDataset(
@@ -56,11 +82,10 @@ def vis_main(method):
         model = OCTGAN(hidden_channels_g=64, hidden_channels_d=64, device=device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250325_134828'
+    checkpoint_dir = 'checkpoints/checkpoints_20250421_180327'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-        # Choose the checkpoint that includes 500 inside the filename
-        checkpoint = [c for c in checkpoints if '10' in c][0]
+        checkpoint = [c for c in checkpoints if '100' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint, map_location=device)
@@ -79,13 +104,13 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 8 
+    BATCH_SIZE = 2
     NUM_EPOCHS = 250
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 256 
+    IMAGE_SIZE = 128 
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
-    CHECKPOINT_FREQ = 10
+    CHECKPOINT_FREQ = 1
     
     # Setup data
     if method == 'interpolation' or method == 'gan' or method == 'tsgan':
@@ -93,10 +118,10 @@ def main(method, loss_name, optimizer_choice):
             root_dir='/mnt/storage1/esad/data/OCT/train',
             image_size=IMAGE_SIZE
         )
-        # test_dataset = RegularDataset(
-        #     root_dir='/mnt/storage1/esad/data/OCT/test',
-        #     image_size=IMAGE_SIZE
-        # )
+        test_dataset = RegularDataset(
+            root_dir='/mnt/storage1/esad/data/OCT/test',
+            image_size=IMAGE_SIZE
+        )
     else:
         train_dataset = ComplexFourierDataset(
             root_dir='/storage/esad/data/OCT/train',
@@ -114,13 +139,13 @@ def main(method, loss_name, optimizer_choice):
         num_workers=4,
         pin_memory=True
     )
-    # test_loader = DataLoader(
-    #     test_dataset,
-    #     batch_size=BATCH_SIZE,
-    #     shuffle=False,
-    #     num_workers=4,
-    #     pin_memory=True
-    # )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
     
     # Initialize model
     if method == 'unet':
@@ -214,7 +239,8 @@ def main(method, loss_name, optimizer_choice):
     elif method == 'diffusion':
         train_diffusion(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'gan':
-        g, d, fd = model.train(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
+        # g, d, fd = model.train(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
+        g, d = model.train_no_fft(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
     elif method == 'tsgan':
         train_tsgan(generator1, discriminator1, generator2, discriminator2, train_loader, CHECKPOINT_FREQ, checkpoint_dir, NUM_EPOCHS)
 
@@ -236,5 +262,6 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    # vis_main('gan')
-    main('gan', '', '')
+    vis_main('interpolation')
+    # main('interpolation', 'ssim_mse', 'adam')
+    # fft_visualize()

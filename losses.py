@@ -58,6 +58,17 @@ class PerceptualLoss(nn.Module):
         
         return loss
 
+def fft3d_loss(fake_seq, real_seq):
+    """
+    fake_seq and real_seq: shape (B, C=1, T=3, H, W)
+    """
+    fft_fake = torch.fft.fftn(fake_seq, dim=(-3, -2, -1), norm='ortho')
+    fft_real = torch.fft.fftn(real_seq, dim=(-3, -2, -1), norm='ortho')
+
+    mag_fake = torch.abs(fft_fake)
+    mag_real = torch.abs(fft_real)
+
+    return F.l1_loss(mag_fake, mag_real)
 
 def gradient_loss(pred, target):
     # pred and target are of shape (B, H, W)
@@ -93,11 +104,12 @@ def psnr(pred, target, alpha=0.1):
     psnr_l = 10 * torch.log10(1.0 / mse_l)
     return mse_l - alpha * psnr_l
 
-def ssim_mse(pred, target, window_size=11):
-    mse = nn.MSELoss()(pred, target)
+def ssim_mse(pred, target, lambda1=50, lambda2=10, window_size=11):
+    # mse = nn.MSELoss()(pred, target)
+    l1 = nn.L1Loss()(pred, target)
     ssim_l = ssim(pred, target)
 
-    return ssim_l + mse
+    return lambda1 * ssim_l + lambda2 * l1 
 
 def create_window(window_size, channel=1):
     def gaussian(window_size, sigma):
@@ -112,8 +124,10 @@ def create_window(window_size, channel=1):
 
 def ssim(img1, img2, window_size=11, window=None, size_average=True, full=False, val_range=None):
     # Add channel dimension
-    img1 = img1.unsqueeze(1)  # Shape becomes (batch_size, 1, height, width)
-    img2 = img2.unsqueeze(1)
+    # print(img1.shape)
+    # print(img2.shape)
+    # img1 = img1.unsqueeze(1)  # Shape becomes (batch_size, 1, height, width)
+    # img2 = img2.unsqueeze(1)
     
     # Value range checking
     if val_range is None:
