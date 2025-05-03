@@ -14,13 +14,101 @@ from kornia.filters import sobel
 # TODO: Perceptual loss with VGG
 # TODO: SSIM + L1 - yazdım denemedim
 
+import torch
+import torch.nn as nn
+import torchvision.models as models
+
+class PerceptualStyleLoss(nn.Module):
+    def __init__(self,
+                 content_layers=['conv3_2'],
+                 style_layers=['conv1_2', 'conv2_2', 'conv3_3', 'conv4_3'],
+                 content_weights=None,
+                 style_weights=None,
+                 device='cuda'):
+        super().__init__()
+
+        # Load pretrained VGG19 and extract features
+        vgg = models.vgg19(pretrained=True).features.to(device).eval()
+
+        self.vgg_layers = {
+            'conv1_1': 0, 'conv1_2': 2,
+            'conv2_1': 5, 'conv2_2': 7,
+            'conv3_1': 10, 'conv3_2': 12, 'conv3_3': 14, 'conv3_4': 16,
+            'conv4_1': 19, 'conv4_2': 21, 'conv4_3': 23, 'conv4_4': 25,
+            'conv5_1': 28, 'conv5_2': 30, 'conv5_3': 32, 'conv5_4': 34
+        }
+
+        self.content_layers = content_layers
+        self.style_layers = style_layers
+
+        # Layer importance weights
+        self.content_weights = content_weights or {name: 1.0 for name in content_layers}
+        self.style_weights = style_weights or {name: 1.0 for name in style_layers}
+        
+        # Create separate modules for each layer we need to access
+        self.feature_modules = nn.ModuleDict()
+        for name in set(content_layers + style_layers):
+            idx = self.vgg_layers[name]
+            # Create a sequential module up to the required layer
+            self.feature_modules[name] = nn.Sequential(*list(vgg.children())[:idx+1])
+            
+        # Freeze VGG parameters
+        for module in self.feature_modules.values():
+            for param in module.parameters():
+                param.requires_grad = False
+
+        self.criterion = nn.L1Loss()
+        self.device = device
+
+    def gram_matrix(self, feat):
+        B, C, H, W = feat.shape
+        feat = feat.view(B, C, H * W)
+        G = torch.bmm(feat, feat.transpose(1, 2))  # (B, C, C)
+        return G / (C * H * W)
+
+    def forward(self, generated, target):
+        # Handle grayscale inputs
+        if generated.shape[1] == 1:
+            generated = generated.repeat(1, 3, 1, 1)
+        if target.shape[1] == 1:
+            target = target.repeat(1, 3, 1, 1)
+
+        perceptual_loss = 0.0
+        style_loss = 0.0
+
+        # Process content loss
+        for layer_name in self.content_layers:
+            weight = self.content_weights[layer_name]
+            module = self.feature_modules[layer_name]
+            
+            gen_features = module(generated)
+            target_features = module(target)
+            
+            layer_loss = self.criterion(gen_features, target_features)
+            perceptual_loss += weight * layer_loss
+
+        # Process style loss
+        for layer_name in self.style_layers:
+            weight = self.style_weights[layer_name]
+            module = self.feature_modules[layer_name]
+            
+            gen_features = module(generated)
+            target_features = module(target)
+            
+            gen_gram = self.gram_matrix(gen_features)
+            target_gram = self.gram_matrix(target_features)
+            
+            layer_loss = self.criterion(gen_gram, target_gram)
+            style_loss += weight * layer_loss
+
+        return perceptual_loss, style_loss
 
 class PerceptualLoss(nn.Module):
     def __init__(self, layers=['conv1_2', 'conv2_2', 'conv3_2'], device='cuda'):
         super(PerceptualLoss, self).__init__()
         
         # Load pre-trained VGG16 model
-        vgg = models.vgg16(pretrained=True).features.to(device).eval()
+        vgg = models.vgg19(pretrained=True).features.to(device).eval()
         
         # Select layers to extract features
         self.selected_layers = layers
@@ -36,7 +124,7 @@ class PerceptualLoss(nn.Module):
         for param in self.feature_extractor.parameters():
             param.requires_grad = False  # Freeze VGG weights
 
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
 
     def forward(self, generated, target):
         """
@@ -48,15 +136,25 @@ class PerceptualLoss(nn.Module):
 
         x = generated.repeat(1, 3, 1, 1)
         y = target.repeat(1, 3, 1, 1)
-        
+
+        count = 0
+
         for name, layer in enumerate(self.feature_extractor):
             x = layer(x)
             y = layer(y)
 
             if name in self.vgg_layers.values():
                 loss += self.criterion(x, y)
+                count += 1
         
-        return loss
+        return loss / count
+
+def film_loss(pred, target, perceptual_gram, weights = [1, 1, 1]):
+    l1 = nn.L1Loss()(pred, target)
+    perceptual, gram = perceptual_gram(pred, target)
+
+    return weights[0] * l1 + weights[1] * perceptual + weights[2] * gram
+
 
 def fft3d_loss(fake_seq, real_seq):
     """

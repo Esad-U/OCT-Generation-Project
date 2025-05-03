@@ -5,13 +5,15 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from datetime import datetime
 
-from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator
+from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator, UNetUpsample
 from tsgan import GeneratorUNet, DiscriminatorResNet, train_tsgan
 from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset
-from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss
+from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss, film_loss
 from train import train, train_interpolation, train_diffusion
 from visualize import plot_losses_gan, visualize_dataset_sample, visualize_model_predictions, plot_losses
+
+DATASET_PATH = '/ari/users/augur/data/OCT'
 
 def fft_visualize():
     # Set device
@@ -104,22 +106,22 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 2
-    NUM_EPOCHS = 250
+    BATCH_SIZE = 4
+    NUM_EPOCHS = 200
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 128 
+    IMAGE_SIZE = 256
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
-    CHECKPOINT_FREQ = 1
+    CHECKPOINT_FREQ = 10
     
     # Setup data
     if method == 'interpolation' or method == 'gan' or method == 'tsgan':
         train_dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/train',
+            root_dir= DATASET_PATH + '/train',
             image_size=IMAGE_SIZE
         )
         test_dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/test',
+            root_dir= DATASET_PATH + '/test',
             image_size=IMAGE_SIZE
         )
     else:
@@ -157,7 +159,11 @@ def main(method, loss_name, optimizer_choice):
         ).to(device)
     elif method == 'interpolation':
         # Direct Interpolation
-        model = InterpolationUNet(
+        # model = InterpolationUNet(
+        #     input_channels=1,
+        #     hidden_channels=HIDDEN_CHANNELS
+        # ).to(device)
+        model = UNetUpsample(
             input_channels=1,
             hidden_channels=HIDDEN_CHANNELS
         ).to(device)
@@ -206,6 +212,8 @@ def main(method, loss_name, optimizer_choice):
         loss = gradient_ssim_loss
     elif loss_name == 'perceptual':
         loss = PerceptualLoss(device=device)
+    elif loss_name == 'film':
+        loss = film_loss
     else:
         pass
     
@@ -227,7 +235,7 @@ def main(method, loss_name, optimizer_choice):
     if method == 'tsgan':
         logging.info(f"Starting training...\nMethod: TSGAN")
     else:
-        logging.info(f"Starting training...\nMethod: {method}\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
+        logging.info(f"Starting training...\nMethod: {method} Upsample\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
                         \nOptimizer: {optimizer_choice}\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
                         \nLearning Rate: {LEARNING_RATE}\nDevice: {device}")
 
@@ -262,6 +270,6 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    vis_main('interpolation')
-    # main('interpolation', 'ssim_mse', 'adam')
+    # vis_main('interpolation')
+    main('interpolation', 'film', 'adam')
     # fft_visualize()

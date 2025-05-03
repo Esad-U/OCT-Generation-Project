@@ -3,7 +3,7 @@ import torch.nn as nn
 import logging
 import os
 
-from losses import fft3d_loss
+from losses import PerceptualStyleLoss
 
 def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -143,6 +143,8 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
     train_losses = []
     test_losses = []
     best_test_loss = float('inf')
+
+    perceptual_gram = PerceptualStyleLoss().to(device)
     
     for epoch in range(num_epochs):
         # Training phase
@@ -159,24 +161,31 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
             for t in range(sequence.shape[1]):
                 if t == 17:
                     break
+                # Get the images from the sequence
                 pre = sequence[:, t].unsqueeze(1)
                 central = sequence[:, t+1].unsqueeze(1)
                 post = sequence[:, t+2].unsqueeze(1)
 
+                # Generate the fake image(s) using the model
                 central_fake = model(pre, post).unsqueeze(1)
                 pre_central = model(pre, central).unsqueeze(1)
                 central_post = model(central, post).unsqueeze(1)
                 central_fake_2 = model(pre_central, central_post).unsqueeze(1)
 
+                # Combine the images, they are used under certain conditions - like combined losses
                 fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
                 real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
 
-                fft_loss = fft3d_loss(fake_combined, real_combined)
+                # cf_loss = nn.MSELoss()(central_fake, central)
+                # cf2_loss = nn.L1Loss()(central_fake_2, central)
 
-                cf_loss = nn.MSELoss()(central_fake, central)
-                cf2_loss = nn.L1Loss()(central_fake_2, central)
+                if epoch < num_epochs / 2:
+                    # For the first half of training, use these loss weights
+                    loss_weights = [1, 1, 1]
+                else:
+                    loss_weights = [1, 0.25, 40]
 
-                loss = loss_fn(central_fake, central) + fft_loss
+                loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
                 # loss = cf_loss + cf2_loss
                 
                 total_loss += loss
@@ -222,8 +231,13 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
                     fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
                     real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
 
-                    fft_loss = fft3d_loss(fake_combined, real_combined)
-                    loss = loss_fn(central_fake, central) + fft_loss
+                    if epoch < num_epochs / 2:
+                        # For the first half of training, use these loss weights
+                        loss_weights = [1, 1, 1]
+                    else:
+                        loss_weights = [1, 0.25, 40]
+
+                    loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
                     # loss = cf_loss + cf2_loss
                     batch_loss += loss
                 
