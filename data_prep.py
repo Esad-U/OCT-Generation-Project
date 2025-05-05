@@ -1,4 +1,5 @@
 import os
+import re
 
 def rename_directories_numerically(root_dir):
     """
@@ -6,7 +7,7 @@ def rename_directories_numerically(root_dir):
     
     Parameters:
     - root_dir (str): The path to the root directory containing folders to rename.
-    """
+    """ 
     # List all directories in the root directory
     folders = os.listdir(root_dir)
     
@@ -20,7 +21,7 @@ def rename_directories_numerically(root_dir):
         if not os.path.isdir(folder_path):
             continue
         
-        new_folder_name = f"{i+495}"
+        new_folder_name = f"{i+544}"
         new_folder_path = os.path.join(root_dir, new_folder_name)
         
         # Rename the folder
@@ -43,11 +44,14 @@ def rename_files_in_directory(root_dir):
         
         for file_name in os.listdir(folder_path):
             # Check if it's a JPEG file
-            if file_name.endswith('.png') and 'ayna' in file_name:
+            if file_name.endswith('.png'):
                 # Extract the number from the file name
                 parts = file_name.split('_')
                 print(parts)
-                number_part = parts[-2]
+                if 'ayna' in file_name:
+                    number_part = parts[-2]
+                else:
+                    number_part = parts[-1].replace('.png', '')
                 
                 # Check for 'flipped' or directly the numeric part
                 # if parts[-1].startswith('flipped'):
@@ -67,6 +71,6 @@ def rename_files_in_directory(root_dir):
                     print(f"Renamed: {file_name} -> {new_name}")
 
 # Specify your root directory path
-root_data_directory = '/mnt/storage1/esad/data/OCT/organized/'
+root_data_directory = '/mnt/storage1/esad/data/OCT/organized_new/'
 rename_files_in_directory(root_data_directory)
-# rename_directories_numerically(root_data_directory)
+# rename_directories_numerically(root_data_directory) 
