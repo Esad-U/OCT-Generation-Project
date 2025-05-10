@@ -49,7 +49,7 @@ def vis_main(method):
     if method == 'interpolation' or method == 'gan':
         dataset = RegularDataset(
             root_dir='/mnt/storage1/esad/data/OCT/test',
-            image_size=128
+            image_size=256
         )
     else:
         dataset = ComplexFourierDataset(
@@ -71,7 +71,11 @@ def vis_main(method):
             time_embed_dim=32
         ).to(device)
     elif method == 'interpolation':
-        model = InterpolationUNet(
+        # model = InterpolationUNet(
+        #     input_channels=1,
+        #     hidden_channels=64
+        # ).to(device)
+        model = UNetUpsample(
             input_channels=1,
             hidden_channels=64
         ).to(device)
@@ -84,10 +88,11 @@ def vis_main(method):
         model = OCTGAN(hidden_channels_g=64, hidden_channels_d=64, device=device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250421_180327'
+    # checkpoint_dir = 'checkpoints/checkpoints_20250421_180327'
+    checkpoint_dir = 'checkpoints/checkpoints_20250507_200514'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-        checkpoint = [c for c in checkpoints if '100' in c][0]
+        checkpoint = [c for c in checkpoints if '150' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint, map_location=device)
@@ -98,7 +103,7 @@ def vis_main(method):
             print(f"Loaded checkpoint: {latest_checkpoint}")
             
             # Visualize model predictions
-            for i in range(3):  # Visualize predictions for first 3 samples
+            for i in range(10):  # Visualize predictions for first 3 samples
                 visualize_model_predictions(model, dataset, device, method, sample_idx=i)
 
 def main(method, loss_name, optimizer_choice):
@@ -270,6 +275,6 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    # vis_main('interpolation')
-    main('interpolation', 'film', 'adam')
+    vis_main('interpolation')
+    # main('interpolation', 'film', 'adam')
     # fft_visualize()
