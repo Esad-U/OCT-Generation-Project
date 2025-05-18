@@ -105,3 +105,55 @@ class RegularDataset(Dataset):
         # even_frames = sequence[1::2]  # Shape: (9, H, W)
 
         return sequence
+
+
+class EfficientDataset(Dataset):
+    def __init__(self, image_dir, image_size=128, window_size=3, transform=None):
+        self.image_dir = image_dir
+        self.image_size = image_size
+        self.window_size = window_size
+        self.transform = transform
+
+        # Gather all image files
+        all_files = [
+            f for f in os.listdir(image_dir)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg')) and '_' in f
+        ]
+
+        # Group files by their folder prefix (e.g., "1" from "1_01.png")
+        group_dict = {}
+        for f in all_files:
+            prefix = f.split('_')[0]
+            if prefix not in group_dict:
+                group_dict[prefix] = []
+            group_dict[prefix].append(f)
+
+        # Sort files within each group and prepare samples
+        self.samples = []
+        for group_id in sorted(group_dict.keys(), key=lambda x: int(x)):
+            files = sorted(group_dict[group_id])
+            if len(files) >= window_size:
+                window = files[:window_size]
+                full_paths = [os.path.join(image_dir, fname) for fname in window]
+                self.samples.append(full_paths)
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        image_paths = self.samples[idx]
+        sequence = []
+
+        for image_file in image_paths:
+            image = Image.open(image_file).convert('L')
+            image = image.resize((self.image_size, self.image_size))
+            image = np.array(image) / 255.0
+            sequence.append(image)
+
+        sequence = np.stack(sequence, axis=0)  # Shape: (3, H, W)
+        sequence = torch.tensor(sequence, dtype=torch.float32)
+
+        if self.transform:
+            sequence = self.transform(sequence)
+
+        return sequence

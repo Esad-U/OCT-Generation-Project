@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 
 def rename_directories_numerically(root_dir):
     """
@@ -21,7 +22,7 @@ def rename_directories_numerically(root_dir):
         if not os.path.isdir(folder_path):
             continue
         
-        new_folder_name = f"{i+544}"
+        new_folder_name = f"{i+1622}"
         new_folder_path = os.path.join(root_dir, new_folder_name)
         
         # Rename the folder
@@ -70,7 +71,26 @@ def rename_files_in_directory(root_dir):
                     os.rename(old_path, new_path)
                     print(f"Renamed: {file_name} -> {new_name}")
 
+def flatten_dataset_structure(src_root='train', dst_root='train_all'):
+    os.makedirs(dst_root, exist_ok=True)
+
+    for folder_name in sorted(os.listdir(src_root)):
+        folder_path = os.path.join(src_root, folder_name)
+
+        if not os.path.isdir(folder_path):
+            continue
+
+        for filename in sorted(os.listdir(folder_path)):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                src_file = os.path.join(folder_path, filename)
+                dst_filename = f"{folder_name}_{filename}"
+                dst_file = os.path.join(dst_root, dst_filename)
+                shutil.copyfile(src_file, dst_file)
+
+    print(f"Images successfully moved to {dst_root}/")
+
 # Specify your root directory path
-root_data_directory = '/mnt/storage1/esad/data/OCT/organized_new/'
-rename_files_in_directory(root_data_directory)
+root_data_directory = '/home/esad-ugur/Data/OCT/train'
+# rename_files_in_directory(root_data_directory)
 # rename_directories_numerically(root_data_directory) 
+flatten_dataset_structure('/home/esad-ugur/Data/OCT/test', '/home/esad-ugur/Data/OCT/test_all')

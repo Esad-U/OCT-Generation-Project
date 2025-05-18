@@ -168,13 +168,13 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
 
                 # Generate the fake image(s) using the model
                 central_fake = model(pre, post).unsqueeze(1)
-                pre_central = model(pre, central).unsqueeze(1)
-                central_post = model(central, post).unsqueeze(1)
-                central_fake_2 = model(pre_central, central_post).unsqueeze(1)
+                # pre_central = model(pre, central).unsqueeze(1)
+                # central_post = model(central, post).unsqueeze(1)
+                # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
 
                 # Combine the images, they are used under certain conditions - like combined losses
-                fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
-                real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
+                # fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
+                # real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
 
                 # cf_loss = nn.MSELoss()(central_fake, central)
                 # cf2_loss = nn.L1Loss()(central_fake_2, central)
@@ -221,15 +221,15 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
                     central = sequence[:, t+1].unsqueeze(1)
 
                     central_fake = model(pre, post).unsqueeze(1)
-                    pre_central = model(pre, central).unsqueeze(1)
-                    central_post = model(central, post).unsqueeze(1)
-                    central_fake_2 = model(pre_central, central_post).unsqueeze(1)
+                    # pre_central = model(pre, central).unsqueeze(1)
+                    # central_post = model(central, post).unsqueeze(1)
+                    # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
 
                     # cf_loss = nn.MSELoss()(central_fake, central)
                     # cf2_loss = nn.L1Loss()(central_fake_2, central)
 
-                    fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
-                    real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
+                    # fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
+                    # real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
 
                     if epoch < num_epochs / 2:
                         # For the first half of training, use these loss weights
@@ -281,51 +281,130 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
     
     return train_losses, test_losses
 
-# Training function for direct interpolation
-# def train_interpolation(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq, log_interval=10, checkpoint_dir='checkpoints'):
-#     os.makedirs(checkpoint_dir, exist_ok=True)
-    
-#     model.train()
-    
-#     for epoch in range(num_epochs):
-#         epoch_loss = 0.0
-#         for batch_idx, (odd_frames, even_frames) in enumerate(train_loader):
-#             odd_frames = odd_frames.to(device)
-#             even_frames = even_frames.to(device)
-            
-#             optimizer.zero_grad()
-            
-#             total_loss = 0
-#             for t in range(even_frames.shape[1]):
-#                 # Get surrounding odd frames
-#                 frame1 = odd_frames[:, t]
-#                 frame2 = odd_frames[:, t+1]
-                
-#                 # Generate intermediate frame
-#                 predicted = model(frame1, frame2)
-                
-#                 # Calculate loss
-#                 loss = loss_fn(predicted, even_frames[:, t])
-#                 total_loss += loss
-            
-#             # avg_loss = total_loss / even_frames.shape[1]
-#             # avg_loss.backward()
-#             total_loss.backward()
-#             optimizer.step()
-            
-#             epoch_loss += avg_loss.item()
-            
-#             if batch_idx % log_interval == 0:
-#                 logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
-#                       f'Loss: {avg_loss.item():.6f}')
-#         # Save checkpoint
-#         if (epoch + 1) % checkpoint_freq == 0:
-#             checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
-#             torch.save({
-#                 'epoch': epoch,
-#                 'model_state_dict': model.state_dict(),
-#                 'optimizer_state_dict': optimizer.state_dict(),
-#                 'loss': epoch_loss,
-#             }, checkpoint_path)
-#             logging.info(f'Saved checkpoint to {checkpoint_path}')
+def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device, 
+                       num_epochs, checkpoint_freq, log_interval=10, checkpoint_dir='checkpoints'):
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    train_losses = []
+    test_losses = []
+    best_test_loss = float('inf')
 
+    perceptual_gram = PerceptualStyleLoss().to(device)
+    
+    for epoch in range(num_epochs):
+        # Training phase
+        model.train()
+        epoch_loss = 0.0
+        for batch_idx, sequence in enumerate(train_loader):
+            # odd_frames = odd_frames.to(device)
+            # even_frames = even_frames.to(device)
+            sequence = sequence.to(device)
+            
+            optimizer.zero_grad()
+
+            # Get the images from the sequence
+            pre = sequence[:, 0].unsqueeze(1)
+            central = sequence[:, 1].unsqueeze(1)
+            post = sequence[:, 2].unsqueeze(1)
+
+            # Generate the fake image(s) using the model
+            central_fake = model(pre, post).unsqueeze(1)
+            # pre_central = model(pre, central).unsqueeze(1)
+            # central_post = model(central, post).unsqueeze(1)
+            # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
+
+            # cf_loss = nn.MSELoss()(central_fake, central)
+            # cf2_loss = nn.L1Loss()(central_fake_2, central)
+
+            if epoch < num_epochs / 2:
+                # For the first half of training, use these loss weights
+                loss_weights = [1, 1, 1]
+            else:
+                loss_weights = [1, 0.25, 40]
+
+            loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
+            # loss = cf_loss + cf2_loss
+            
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            
+            if batch_idx % log_interval == 0:
+                logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                           f'Train Loss: {loss.item():.6f}')
+        
+        avg_train_loss = epoch_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
+        
+        # Testing phase
+        model.eval()
+        test_loss = 0.0
+        with torch.no_grad():
+            for sequence in test_loader:
+                # odd_frames = odd_frames.to(device)
+                # even_frames = even_frames.to(device)
+                sequence = sequence.to(device)
+                
+                pre = sequence[:, 0].unsqueeze(1)
+                post = sequence[:, 2].unsqueeze(1)
+                central = sequence[:, 1].unsqueeze(1)
+
+                central_fake = model(pre, post).unsqueeze(1)
+                # pre_central = model(pre, central).unsqueeze(1)
+                # central_post = model(central, post).unsqueeze(1)
+                # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
+
+                # cf_loss = nn.MSELoss()(central_fake, central)
+                # cf2_loss = nn.L1Loss()(central_fake_2, central)
+
+                # fake_combined = torch.cat([pre_central, central_fake, central_post], dim=1).unsqueeze(1)
+                # real_combined = torch.cat([pre, central, post], dim=1).unsqueeze(1)
+
+                if epoch < num_epochs / 2:
+                    # For the first half of training, use these loss weights
+                    loss_weights = [1, 1, 1]
+                else:
+                    loss_weights = [1, 0.25, 40]
+
+                loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
+                # loss = cf_loss + cf2_loss
+                
+                test_loss += loss.item()
+        
+        avg_test_loss = test_loss / len(test_loader)
+        test_losses.append(avg_test_loss)
+        
+        logging.info(f'Epoch {epoch}/{num_epochs} | '
+                    f'Train Loss: {avg_train_loss:.6f} | '
+                    f'Test Loss: {avg_test_loss:.6f}')
+        
+        # Save checkpoint if test loss improved
+        if (epoch + 1) % checkpoint_freq == 0:
+            checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_train_loss,
+                'test_loss': avg_test_loss,
+                'train_losses': train_losses,
+                'test_losses': test_losses
+            }, checkpoint_path)
+            logging.info(f'Saved checkpoint to {checkpoint_path}')
+        
+        # Save best model
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            best_model_path = os.path.join(checkpoint_dir, 'best_model.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_train_loss,
+                'test_loss': avg_test_loss,
+                'train_losses': train_losses,
+                'test_losses': test_losses
+            }, best_model_path)
+            logging.info(f'New best model saved with test loss: {best_test_loss:.6f}')
+    
+    return train_losses, test_losses

@@ -19,7 +19,7 @@ def split_folders(root_dir, test_size=20):
         raise ValueError(f"Root directory contains fewer than {test_size} folders")
     
     # Randomly select folders for test set
-    test_folders = random.sample(subdirs, test_size)
+    test_folders = ["21", "44", "125", "132", "171", "210", "340", "358", "363", "383", "401", "405", "406", "408", "427", "448", "724", "780", "787", "845"]
     train_folders = [d for d in subdirs if d not in test_folders]
     
     # Create test and train directories if they don't exist
@@ -49,5 +49,5 @@ def split_folders(root_dir, test_size=20):
 # Example usage
 if __name__ == "__main__":
     # Replace with your root directory path
-    root_directory = "/mnt/storage1/esad/data/OCT/organized"
+    root_directory = "/home/esad-ugur/Data/OCT/organized"
     split_folders(root_directory)

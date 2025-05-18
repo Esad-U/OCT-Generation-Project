@@ -8,12 +8,12 @@ from datetime import datetime
 from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator, UNetUpsample
 from tsgan import GeneratorUNet, DiscriminatorResNet, train_tsgan
 from octgan import OCTGAN
-from data import ComplexFourierDataset, RegularDataset
+from data import ComplexFourierDataset, RegularDataset, EfficientDataset
 from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss, film_loss
-from train import train, train_interpolation, train_diffusion
+from train import train, train_interpolation, train_diffusion, efficient_train
 from visualize import plot_losses_gan, visualize_dataset_sample, visualize_model_predictions, plot_losses
 
-DATASET_PATH = '/ari/users/augur/data/OCT'
+DATASET_PATH = '/home/esad-ugur/Data/OCT/'
 
 def fft_visualize():
     # Set device
@@ -48,7 +48,7 @@ def vis_main(method):
     # Load dataset
     if method == 'interpolation' or method == 'gan':
         dataset = RegularDataset(
-            root_dir='/mnt/storage1/esad/data/OCT/test',
+            root_dir='/home/esad-ugur/Data/OCT/test',
             image_size=256
         )
     else:
@@ -89,10 +89,10 @@ def vis_main(method):
 
     # Try to load the latest checkpoint
     # checkpoint_dir = 'checkpoints/checkpoints_20250421_180327'
-    checkpoint_dir = 'checkpoints/checkpoints_20250507_200514'
+    checkpoint_dir = 'checkpoints/checkpoints_20250518_003621'
     if os.path.exists(checkpoint_dir):
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-        checkpoint = [c for c in checkpoints if '150' in c][0]
+        checkpoint = [c for c in checkpoints if '100' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint, map_location=device)
@@ -111,23 +111,33 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 4
-    NUM_EPOCHS = 200
+    BATCH_SIZE = 6
+    NUM_EPOCHS = 100
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 256
+    IMAGE_SIZE = 128
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
-    CHECKPOINT_FREQ = 10
+    CHECKPOINT_FREQ = 25
     
     # Setup data
     if method == 'interpolation' or method == 'gan' or method == 'tsgan':
-        train_dataset = RegularDataset(
-            root_dir= DATASET_PATH + '/train',
-            image_size=IMAGE_SIZE
+        # train_dataset = RegularDataset(
+        #     root_dir= DATASET_PATH + '/train',
+        #     image_size=IMAGE_SIZE
+        # )
+        # test_dataset = RegularDataset(
+        #     root_dir= DATASET_PATH + '/test',
+        #     image_size=IMAGE_SIZE
+        # )
+        train_dataset = EfficientDataset(
+            image_dir=DATASET_PATH + '/train_all',
+            image_size=IMAGE_SIZE,
+            window_size=3
         )
-        test_dataset = RegularDataset(
-            root_dir= DATASET_PATH + '/test',
-            image_size=IMAGE_SIZE
+        test_dataset = EfficientDataset(
+            image_dir=DATASET_PATH + '/test_all',
+            image_size=IMAGE_SIZE,
+            window_size=3
         )
     else:
         train_dataset = ComplexFourierDataset(
@@ -247,7 +257,7 @@ def main(method, loss_name, optimizer_choice):
     if method == 'unet':
         train(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'interpolation':
-        train_loss, test_loss = train_interpolation(model, train_loader, test_loader, optimizer, loss, device, NUM_EPOCHS, 
+        train_loss, test_loss = efficient_train(model, train_loader, test_loader, optimizer, loss, device, NUM_EPOCHS, 
                                                             CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'diffusion':
         train_diffusion(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
@@ -275,6 +285,6 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    vis_main('interpolation')
-    # main('interpolation', 'film', 'adam')
+    # vis_main('interpolation')
+    main('interpolation', 'film', 'adam')
     # fft_visualize()

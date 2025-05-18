@@ -38,7 +38,7 @@ def visualize_results(original_odd, original_even, generated_even, save_path=Non
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
         print(f"Saved visualization to {save_path}")
     
-    plt.show()
+    # plt.show()
 
 def visualize_reconstructions(original_odd, original_even, generated_even, save_path=None):
     """Visualize reconstructed images"""
@@ -73,7 +73,7 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
         print(f"Saved reconstructions to {save_path}")
     
-    plt.show()
+    # plt.show()
 
 def visualize_interpolations(original_odd, original_even, generated_even, save_path=None):
     """Visualize reconstructed images"""
@@ -186,7 +186,7 @@ def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
             fig1.savefig(f'{save_path}_fourier.png', bbox_inches='tight', dpi=300)
             fig2.savefig(f'{save_path}_reconstructed.png', bbox_inches='tight', dpi=300)
     
-    plt.show()
+    # plt.show()
 
 def visualize_model_predictions(model, dataset, device, method, sample_idx=0, save_dir='predictions'):
     """
