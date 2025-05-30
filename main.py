@@ -13,7 +13,7 @@ from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_
 from train import train, train_interpolation, train_diffusion, efficient_train
 from visualize import plot_losses_gan, visualize_dataset_sample, visualize_model_predictions, plot_losses
 
-DATASET_PATH = '/home/esad-ugur/Data/OCT/'
+DATASET_PATH = '/ari/users/augur/data/OCT'
 
 def fft_visualize():
     # Set device
@@ -111,13 +111,13 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 6
+    BATCH_SIZE = 96
     NUM_EPOCHS = 100
     LEARNING_RATE = 1e-5
-    IMAGE_SIZE = 128
+    IMAGE_SIZE = 256
     HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
-    CHECKPOINT_FREQ = 25
+    CHECKPOINT_FREQ = 100
     
     # Setup data
     if method == 'interpolation' or method == 'gan' or method == 'tsgan':
@@ -165,14 +165,7 @@ def main(method, loss_name, optimizer_choice):
     )
     
     # Initialize model
-    if method == 'unet':
-        model = ComplexUNetLarge(
-            input_channels=1,
-            condition_channels=2,
-            hidden_channels=HIDDEN_CHANNELS,
-            time_embed_dim=TIME_EMBED_DIM
-        ).to(device)
-    elif method == 'interpolation':
+    if method == 'interpolation':
         # Direct Interpolation
         # model = InterpolationUNet(
         #     input_channels=1,
@@ -189,15 +182,11 @@ def main(method, loss_name, optimizer_choice):
         ).to(device)
     elif method == 'gan':
         model = OCTGAN(
+            dataset=train_dataset,
             hidden_channels_g=64,
             hidden_channels_d=64,
             device=device
         )
-    elif method == 'tsgan':
-        generator1 = GeneratorUNet()
-        discriminator1 = DiscriminatorResNet()
-        generator2 = GeneratorUNet()
-        discriminator2 = DiscriminatorResNet()
 
     # Setup optimizer
     if optimizer_choice == 'adam':
@@ -247,8 +236,6 @@ def main(method, loss_name, optimizer_choice):
     # Start training
     if method == 'gan':
         logging.info(f"Starting training...\nMethod: OCTGAN")
-    if method == 'tsgan':
-        logging.info(f"Starting training...\nMethod: TSGAN")
     else:
         logging.info(f"Starting training...\nMethod: {method} Upsample\nLoss: {loss_name}\nImage Size: {IMAGE_SIZE} \
                         \nOptimizer: {optimizer_choice}\nBatch Size: {BATCH_SIZE}\nHidden Channels:{HIDDEN_CHANNELS} \
@@ -286,5 +273,5 @@ def main(method, loss_name, optimizer_choice):
 
 if __name__ == '__main__':
     # vis_main('interpolation')
-    main('interpolation', 'film', 'adam')
+    main('gan', 'film', '')
     # fft_visualize()

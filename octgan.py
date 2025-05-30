@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from losses import PerceptualLoss, ssim_mse, fft3d_loss
+from losses import PerceptualStyleLoss, film_loss
 
 class SelfAttention(nn.Module):
     def __init__(self, channels):
@@ -103,81 +103,6 @@ class Generator(nn.Module):
         
         return nn.Tanh()(self.outc(x).squeeze(1))
 
-
-# class Generator(nn.Module):
-#     def __init__(self, input_channels, hidden_channels):
-#         super().__init__()
-        
-#         # Input is two surrounding frames concatenated
-#         self.input_channels = input_channels * 2  # *2 for two frames, *2 for complex input
-        
-#         # Encoder
-#         self.inc = self._double_conv(self.input_channels, hidden_channels)
-#         self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
-#         self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
-#         self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
-        
-#         # Bridge with attention
-#         self.bridge = nn.Sequential(
-#             self._double_conv(hidden_channels * 8, hidden_channels * 8),
-#             SelfAttention(hidden_channels * 8)
-#         )
-        
-#         # Decoder
-#         self.up3 = nn.ConvTranspose2d(hidden_channels * 8, hidden_channels * 4, kernel_size=2, stride=2)
-#         self.conv_up3 = self._double_conv(hidden_channels * 8, hidden_channels * 4)
-        
-#         self.up2 = nn.ConvTranspose2d(hidden_channels * 4, hidden_channels * 2, kernel_size=2, stride=2)
-#         self.conv_up2 = self._double_conv(hidden_channels * 4, hidden_channels * 2)
-        
-#         self.up1 = nn.ConvTranspose2d(hidden_channels * 2, hidden_channels, kernel_size=2, stride=2)
-#         self.conv_up1 = self._double_conv(hidden_channels * 2, hidden_channels)
-        
-#         # Output layer (2 channels for complex output)
-#         self.outc = nn.Conv2d(hidden_channels, input_channels, kernel_size=1)
-        
-#     def _double_conv(self, in_channels, out_channels):
-#         return nn.Sequential(
-#             nn.Conv2d(in_channels, out_channels, 3, padding=1),
-#             nn.BatchNorm2d(out_channels),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(out_channels, out_channels, 3, padding=1),
-#             nn.BatchNorm2d(out_channels),
-#             nn.ReLU(inplace=True)
-#         )
-    
-#     def _down_block(self, in_channels, out_channels):
-#         return nn.Sequential(
-#             nn.MaxPool2d(2),
-#             self._double_conv(in_channels, out_channels)
-#         )
-    
-#     def forward(self, frame1, frame2):
-#         # frame1 = frame1.reshape((frame1.shape[0], 1, frame1.shape[1], frame1.shape[2]))
-#         # frame2 = frame2.reshape((frame2.shape[0], 1, frame2.shape[1], frame2.shape[2]))
-#         # Concatenate input frames
-#         x = torch.cat([frame1, frame2], dim=1)
-
-#         # Encoder
-#         x1 = self.inc(x)
-#         x2 = self.down1(x1)
-#         x3 = self.down2(x2)
-#         x4 = self.down3(x3)
-        
-#         # Bridge
-#         x4 = self.bridge(x4)
-        
-#         # Decoder with skip connections
-#         x = self.up3(x4)
-#         x = self.conv_up3(torch.cat([x, x3], dim=1))
-        
-#         x = self.up2(x)
-#         x = self.conv_up2(torch.cat([x, x2], dim=1))
-        
-#         x = self.up1(x)
-#         x = self.conv_up1(torch.cat([x, x1], dim=1))
-        
-#         return nn.Tanh()(self.outc(x).squeeze(1))
 
 class Discriminator(nn.Module):
     def __init__(self, input_channels, hidden_channels=16):
@@ -331,72 +256,9 @@ class FFTDiscriminator(nn.Module):
         fft_img = self.fft_transform(img)
         return self.model(fft_img).view(-1, 1)
 
-# class FFTDiscriminator(nn.Module):
-#     def __init__(self, input_channels=3, hidden_channels=16):
-#         super().__init__()
-#         self.model = nn.Sequential(
-#             nn.Conv2d(input_channels, hidden_channels, kernel_size=4, stride=2, padding=1),
-#             nn.LeakyReLU(0.2, inplace=True),
-
-#             nn.Conv2d(hidden_channels, hidden_channels * 2, kernel_size=4, stride=2, padding=1),
-#             nn.BatchNorm2d(hidden_channels * 2),
-#             nn.LeakyReLU(0.2, inplace=True),
-
-#             nn.Conv2d(hidden_channels * 2, hidden_channels * 4, kernel_size=4, stride=2, padding=1),
-#             nn.BatchNorm2d(hidden_channels * 4),
-#             nn.LeakyReLU(0.2, inplace=True),
-
-#             nn.Conv2d(hidden_channels * 4, hidden_channels * 8, kernel_size=4, stride=2, padding=1),
-#             nn.BatchNorm2d(hidden_channels * 8),
-#             nn.LeakyReLU(0.2, inplace=True),
-
-#             nn.Conv2d(hidden_channels * 8, hidden_channels * 16, kernel_size=4, stride=2, padding=1),
-#             nn.BatchNorm2d(hidden_channels * 16),
-#             nn.LeakyReLU(0.2, inplace=True),
-
-#             nn.AdaptiveAvgPool2d(1),  # Force output to be 1x1 regardless of input size
-#             nn.Conv2d(hidden_channels * 16, 1, kernel_size=1),
-#             nn.Sigmoid()
-#         )def __init__(self, input_channels=3, base_channels=64):
-        super().__init__()
-
-        self.model = nn.Sequential(
-            # No norm in first layer
-            nn.Conv2d(input_channels, base_channels, kernel_size=4, stride=2, padding=1),  # -> H/2
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(base_channels, base_channels * 2, kernel_size=4, stride=2, padding=1),  # -> H/4
-            nn.BatchNorm2d(base_channels * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(base_channels * 2, base_channels * 4, kernel_size=4, stride=2, padding=1),  # -> H/8
-            nn.BatchNorm2d(base_channels * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(base_channels * 4, base_channels * 8, kernel_size=4, stride=1, padding=1),  # -> slightly less spatial shrinkage
-            nn.BatchNorm2d(base_channels * 8),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(base_channels * 8, 1, kernel_size=4, stride=1, padding=1),  # Final grid of real/fake scores
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        return self.model(x)
-    
-#     def fft_transform(self, img):
-#         fft = torch.fft.fft2(img, norm='ortho')  # Compute 2D FFT
-#         magnitude = torch.abs(fft)  # Get magnitude spectrum
-#         return magnitude
-    
-#     def forward(self, img):
-#         fft_img = self.fft_transform(img)  # Convert image to frequency domain
-#         # print(fft_img.shape)
-#         return self.model(fft_img).view(-1, 1)
-
 
 class OCTGAN():
-    def __init__(self, hidden_channels_g, hidden_channels_d, device):
+    def __init__(self, dataset, hidden_channels_g, hidden_channels_d, device):
         self.generator = Generator(input_channels=1, hidden_channels=hidden_channels_g).to(device)
 
         self.discriminator = Discriminator(input_channels=1, hidden_channels=hidden_channels_d).to(device)
@@ -407,9 +269,11 @@ class OCTGAN():
 
         self.fft_discriminator = FFTDiscriminator(hidden_channels=hidden_channels_d).to(device)
 
-        self.perceptual_loss = PerceptualLoss(device=device)
+        self.dataset = dataset
 
         self.device = device
+
+        self.psl = PerceptualStyleLoss().to(device)
 
     def train(self, train_loader, num_epochs, checkpoint_freq, batch_size, lr=0.0002, beta1=0.5, log_interval=10, checkpoint_dir='checkpoints'):
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -568,10 +432,10 @@ class OCTGAN():
         criterion = nn.BCELoss()
         # gen_loss = PerceptualLoss()
         # gen_loss = nn.L1Loss()
-        gen_loss = ssim_mse
+        gen_loss = film_loss
 
         optimizer_g = optim.Adam(self.generator.parameters(), lr=lr, betas=(beta1, 0.999))
-        optimizer_d = optim.Adam(self.patch_discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
+        optimizer_d = optim.Adam(self.discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
 
         # Add learning rate schedulers
         scheduler_g = optim.lr_scheduler.ExponentialLR(optimizer_g, gamma=0.95)
@@ -593,71 +457,74 @@ class OCTGAN():
             for batch_idx, sequence in enumerate(train_loader):
                 sequence = sequence.to(self.device)
 
-                total_lg = 0
-                total_ld = 0
+                pre = sequence[:, 0].unsqueeze(1) # (B, 1, H, W)
+                central = sequence[:, 1].unsqueeze(1)
+                post = sequence[:, 2].unsqueeze(1)
+
+                # Might not use this
+                # real_sequence = torch.cat([pre, central, post], dim=1) # (B, 3, H, W)
+
+                self.generator.eval()
+                # Generate the fake image(s) using the model
+                central_fake = self.generator(pre, post).unsqueeze(1)
+                # pre_central = self.generator(pre, central).unsqueeze(1)
+                # central_post = self.generator(central, post).unsqueeze(1)
+                # central_fake_2 = self.generator(pre_central, central_post).unsqueeze(1)
+                # fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1)
+
+                # Train discriminator
+                self.discriminator.train()
+                real_sample = self.dataset.sample_random_images(batch_size).to(self.device)
+                real_outputs = self.discriminator(real_sample)
+                # real_labels_d = torch.ones_like(real_outputs)
+                real_labels_d = torch.rand(real_outputs.shape, device=self.device) * 0.05 + 0.95
+                real_loss = criterion(real_outputs, real_labels_d)
+
+                fake_outputs = self.discriminator(central_fake)
+
+                # fake_labels_d = torch.zeros_like(fake_outputs)
+                fake_labels_d = torch.rand(fake_outputs.shape, device=self.device) * 0.05
+                fake_loss = criterion(fake_outputs, fake_labels_d)
+
+                d_loss = real_loss + fake_loss
+
+                optimizer_d.zero_grad()
+                d_loss.backward()
+                optimizer_d.step()
+                # Train discriminator ends
                 
-                for t in range(sequence.shape[1]):
-                    if t == 17:
-                        break
+                # Train Generator
+                self.generator.train()
+                self.discriminator.eval()
+                if epoch <= num_epochs/2:
+                    wts = [1, 1, 1]
+                else:
+                    wts = [1, 0.25, 40]
+
+                ## Regenerate for generator training
+                central_fake = self.generator(pre, post).unsqueeze(1)
+                # pre_central = self.generator(pre, central).unsqueeze(1)
+                # central_post = self.generator(central, post).unsqueeze(1)
+                # central_fake_2 = self.generator(pre_central, central_post)
+                # fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1)
+
+                fakes_loss = gen_loss(central_fake, central, self.psl, wts)
+
+                fake_outputs_d = self.discriminator(central_fake)
+                real_labels_d = torch.rand(fake_outputs_d.shape, device=self.device) * 0.05 + 0.95
+                # REORGANIZE THIS LOSS !!!
+                g_loss = 0.5 * fakes_loss + 0.5 * criterion(fake_outputs_d, real_labels_d)
+
+                optimizer_g.zero_grad()
+                g_loss.backward()
+                optimizer_g.step()
                     
-                    pre = sequence[:, t].unsqueeze(1) # (B, 1, H, W)
-                    central = sequence[:, t+1].unsqueeze(1)
-                    post = sequence[:, t+2].unsqueeze(1)
-
-                    real_sequence = torch.cat([pre, central, post], dim=1) # (B, 3, H, W)
-
-                    central_fake = self.generator(pre, post).unsqueeze(1) # (B, 1, H, W)
-                    pre_central = self.generator(pre, central).unsqueeze(1)
-                    central_post = self.generator(central, post).unsqueeze(1)
-                    
-                    fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1) # (B, 3, H, W)
-                    # Train regular discriminator
-                    self.patch_discriminator.train()
-                    real_outputs = self.patch_discriminator(real_sequence)
-                    
-                    # real_labels_d = torch.ones_like(real_outputs)
-                    real_labels_d = torch.rand(real_outputs.shape, device=self.device) * 0.05 + 0.95
-                    real_loss = criterion(real_outputs, real_labels_d)
-                    
-                    fake_outputs = self.patch_discriminator(fake_sequence.detach())
-                    
-                    # fake_labels_d = torch.zeros_like(fake_outputs)
-                    fake_labels_d = torch.rand(fake_outputs.shape, device=self.device) * 0.05
-                    fake_loss = criterion(fake_outputs, fake_labels_d)
-
-                    d_loss = real_loss + fake_loss
-
-                    optimizer_d.zero_grad()
-                    d_loss.backward()
-                    optimizer_d.step()
-                    total_ld += d_loss.item()
-
-                    # Train Generator
-                    self.generator.train()
-                    self.patch_discriminator.eval()
-                    fakes_loss = gen_loss(central_fake, central, lambda1=0.2, lambda2=0.2)
-
-                    ## Regenerate for generator training
-                    central_fake = self.generator(pre, post).unsqueeze(1)
-                    pre_central = self.generator(pre, central).unsqueeze(1)
-                    central_post = self.generator(central, post).unsqueeze(1)
-                    # central_fake_2 = self.generator(pre_central, central_post)
-                    fake_sequence = torch.cat([pre_central, central_fake, central_post], dim=1)
-
-                    fake_outputs_d = self.patch_discriminator(fake_sequence)
-                    g_loss = fakes_loss + 0.1 * criterion(fake_outputs_d, real_labels_d) + 0.2 * fft3d_loss(fake_sequence, real_sequence) + 0.3 * self.perceptual_loss(central_fake, central) 
-
-                    optimizer_g.zero_grad()
-                    g_loss.backward()
-                    optimizer_g.step()
-                    total_lg += g_loss.item()
-                
                 if batch_idx % log_interval == 0:
                     logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
-                                    f'Generator Loss: {total_lg:.4f} - Discriminator Loss: {total_ld:.4f}')
+                                    f'Generator Loss: {g_loss.item():.4f} - Discriminator Loss: {d_loss.item():.4f}')
 
-                epoch_loss_g += total_lg
-                epoch_loss_d += total_ld
+                epoch_loss_g += g_loss
+                epoch_loss_d += d_loss
 
             epoch_loss_g /= len(train_loader)
             epoch_loss_d /= len(train_loader)
