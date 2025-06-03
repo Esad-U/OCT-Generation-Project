@@ -1,6 +1,9 @@
 import torch
 import matplotlib.pyplot as plt
 import os
+import cv2
+import numpy as np
+from skimage.exposure import match_histograms
 
 from utils import reconstruct_image, sample_diffusion
 
@@ -188,6 +191,45 @@ def visualize_dataset_sample(dataset, method, sample_idx=0, save_path=None):
     
     # plt.show()
 
+def match_contrast(generated: torch.Tensor, reference: torch.Tensor, num_bins: int = 256) -> torch.Tensor:
+    if generated.dim() == 3:
+        generated = generated.squeeze(0)
+    if reference.dim() == 3:
+        reference = reference.squeeze(0)
+
+    # Clone to avoid shared memory issues
+    generated = generated.clone()
+    reference = reference.clone()
+
+    gen_flat = generated.flatten()
+    ref_flat = reference.flatten()
+
+    # Histograms
+    gen_hist = torch.histc(gen_flat, bins=num_bins, min=0.0, max=1.0)
+    ref_hist = torch.histc(ref_flat, bins=num_bins, min=0.0, max=1.0)
+
+    # CDFs
+    gen_cdf = torch.cumsum(gen_hist, dim=0)
+    ref_cdf = torch.cumsum(ref_hist, dim=0)
+    gen_cdf = gen_cdf / gen_cdf[-1]
+    ref_cdf = ref_cdf / ref_cdf[-1]
+
+    # Mapping
+    mapping = torch.zeros(num_bins)
+    ref_bin_values = torch.linspace(0, 1, steps=num_bins)
+
+    for i in range(num_bins):
+        idx = torch.argmin(torch.abs(ref_cdf - gen_cdf[i]))
+        mapping[i] = ref_bin_values[idx]
+
+    # Digitize and apply mapping
+    gen_indices = torch.clamp((gen_flat * (num_bins - 1)).long(), 0, num_bins - 1)
+    matched_flat = mapping[gen_indices]
+
+    matched = matched_flat.view_as(generated)
+
+    return matched
+
 def visualize_model_predictions(model, dataset, device, method, sample_idx=0, save_dir='predictions'):
     """
     Generate and visualize model predictions for a single sample.
@@ -242,6 +284,9 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
 
             generated_frames.append(generated.cpu().squeeze())
         
+        for i in range(len(generated_frames)):
+            generated_frames[i] = match_contrast(generated_frames[i], original_even_frames[0, i])
+
         generated_frames = torch.stack(generated_frames)
     
     if method == 'interpolation' or method == 'gan':
