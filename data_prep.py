@@ -93,4 +93,4 @@ def flatten_dataset_structure(src_root='train', dst_root='train_all'):
 root_data_directory = '/home/esad-ugur/Data/OCT/train'
 # rename_files_in_directory(root_data_directory)
 # rename_directories_numerically(root_data_directory) 
-flatten_dataset_structure('/home/esad-ugur/Data/OCT/test', '/home/esad-ugur/Data/OCT/test_all')
+flatten_dataset_structure('/home/esad-ugur/Data/OCT/validation', '/home/esad-ugur/Data/OCT/validation_all')

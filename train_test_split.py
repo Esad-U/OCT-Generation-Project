@@ -2,7 +2,7 @@ import os
 import shutil
 import random
 
-def split_folders(root_dir, test_size=20):
+def split_folders(root_dir, test_size=176):
     """
     Copies folders from root directory into test and train directories
     while preserving the original structure.
@@ -18,17 +18,21 @@ def split_folders(root_dir, test_size=20):
     if len(subdirs) < test_size:
         raise ValueError(f"Root directory contains fewer than {test_size} folders")
     
-    # Randomly select folders for test set
-    test_folders = ["21", "44", "125", "132", "171", "210", "340", "358", "363", "383", "401", "405", "406", "408", "427", "448", "724", "780", "787", "845"]
-    train_folders = [d for d in subdirs if d not in test_folders]
+    # Randomly select folders for test and validation sets
+    test_folders = random.sample(subdirs, test_size)
+    remaining_folders = [d for d in subdirs if d not in test_folders]
+    validation_folders = random.sample(remaining_folders, test_size)
+    train_folders = [d for d in remaining_folders if d not in validation_folders]
     
     # Create test and train directories if they don't exist
     parent_dir = os.path.dirname(root_dir)
     test_dir = os.path.join(parent_dir, 'test')
     train_dir = os.path.join(parent_dir, 'train')
+    validation_dir = os.path.join(parent_dir, 'validation')
     
     os.makedirs(test_dir, exist_ok=True)
     os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(validation_dir, exist_ok=True)
     
     # Copy folders to respective directories
     for folder in test_folders:
@@ -37,13 +41,19 @@ def split_folders(root_dir, test_size=20):
         shutil.copytree(src, dst, dirs_exist_ok=True)
         print(f"Copied {folder} to test directory")
     
+    for folder in validation_folders:
+        src = os.path.join(root_dir, folder)
+        dst = os.path.join(validation_dir, folder)
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        print(f"Copied {folder} to validation directory")
+    
     for folder in train_folders:
         src = os.path.join(root_dir, folder)
         dst = os.path.join(train_dir, folder)
         shutil.copytree(src, dst, dirs_exist_ok=True)
         print(f"Copied {folder} to train directory")
     
-    print(f"\nComplete! Copied {len(test_folders)} folders to test and "
+    print(f"\nComplete! Copied {len(test_folders)} folders to test, {len(validation_folders)} folders to validation and "
           f"{len(train_folders)} folders to train")
 
 # Example usage

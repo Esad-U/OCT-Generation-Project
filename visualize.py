@@ -78,7 +78,7 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
     
     # plt.show()
 
-def visualize_interpolations(original_odd, original_even, generated_even, save_path=None):
+def visualize_interpolations(original_odd, original_even, generated_even, eval_metrics, save_path=None):
     """Visualize reconstructed images"""
     num_timesteps = original_even.shape[0]
     fig, axes = plt.subplots(3, num_timesteps, figsize=(20, 8))
@@ -87,7 +87,9 @@ def visualize_interpolations(original_odd, original_even, generated_even, save_p
     axes[0, num_timesteps//2].set_title("Odd Frames", pad=10)
     axes[1, num_timesteps//2].set_title("Original Even Frames", pad=10)
     axes[2, num_timesteps//2].set_title("Generated Even Frames", pad=10)
-    
+    # add text below the figure
+    fig.text(0.5, 0.04, f'SSIM: {eval_metrics['ssim']}, PSNR: {eval_metrics['psnr']}, FID: {eval_metrics['fid']}, LPIPS: {eval_metrics['lpips']}', ha='center', va='center', fontsize=14)
+
     # Reconstruct and plot images
     for t in range(num_timesteps):
         if t < len(original_odd):
@@ -230,7 +232,7 @@ def match_contrast(generated: torch.Tensor, reference: torch.Tensor, num_bins: i
 
     return matched
 
-def visualize_model_predictions(model, dataset, device, method, sample_idx=0, save_dir='predictions'):
+def visualize_model_predictions(model, evaluator, dataset, device, method, sample_idx=0, save_dir='predictions'):
     """
     Generate and visualize model predictions for a single sample.
     """
@@ -283,18 +285,23 @@ def visualize_model_predictions(model, dataset, device, method, sample_idx=0, sa
                 generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
             generated_frames.append(generated.cpu().squeeze())
-        
+
         for i in range(len(generated_frames)):
             generated_frames[i] = match_contrast(generated_frames[i], original_even_frames[0, i])
 
         generated_frames = torch.stack(generated_frames)
     
+    original_even_frames = original_even_frames.squeeze().cpu()
+
+    evaluation_results = evaluator.benchmark(original_even_frames, generated_frames)
+    
     if method == 'interpolation' or method == 'gan':
         visualize_interpolations(
             odd_frames.squeeze().cpu().numpy(),
-            original_even_frames.squeeze().cpu().numpy(),
+            original_even_frames.numpy(),
             generated_frames.numpy(),
-            save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png')
+            save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png'),
+            eval_metrics=evaluation_results
         )
     else:
         # Visualize results

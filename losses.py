@@ -14,10 +14,6 @@ from kornia.filters import sobel
 # TODO: Perceptual loss with VGG
 # TODO: SSIM + L1 - yazdım denemedim
 
-import torch
-import torch.nn as nn
-import torchvision.models as models
-
 class PerceptualStyleLoss(nn.Module):
     def __init__(self,
                  content_layers=['conv3_2'],
@@ -155,7 +151,6 @@ def film_loss(pred, target, perceptual_gram, weights = [1, 1, 1]):
 
     return weights[0] * l1 + weights[1] * perceptual + weights[2] * gram
 
-
 def fft3d_loss(fake_seq, real_seq):
     """
     fake_seq and real_seq: shape (B, C=1, T=3, H, W)
@@ -194,20 +189,6 @@ def gradient_ssim_loss(pred, target):
     gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
 
     return 0.5 * gradient_l + 0.5 * ssim_l
-
-def psnr(pred, target, alpha=0.1):
-    mse_l = nn.MSELoss()(pred, target)
-    pred = pred / 255.0
-    target = target / 255.0
-    psnr_l = 10 * torch.log10(1.0 / mse_l)
-    return mse_l - alpha * psnr_l
-
-def ssim_mse(pred, target, lambda1=50, lambda2=10, window_size=11):
-    # mse = nn.MSELoss()(pred, target)
-    l1 = nn.L1Loss()(pred, target)
-    ssim_l = ssim(pred, target)
-
-    return lambda1 * ssim_l + lambda2 * l1 
 
 def create_window(window_size, channel=1):
     def gaussian(window_size, sigma):
@@ -281,7 +262,7 @@ def ssim(img1, img2, window_size=11, window=None, size_average=True, full=False,
 
     if full:
         return ret, cs
-    return 1 - ret
+    return ret
 
 def combined_loss(pred, target, fourier_weight=0.5):
     # Spatial domain loss

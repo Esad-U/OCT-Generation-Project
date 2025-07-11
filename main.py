@@ -9,11 +9,12 @@ from models import InterpolationUNet, ComplexUNetLarge, DiffusionInterpolator, U
 from tsgan import GeneratorUNet, DiscriminatorResNet, train_tsgan
 from octgan import OCTGAN
 from data import ComplexFourierDataset, RegularDataset, EfficientDataset
-from losses import separate_loss, combined_loss, interpolation_loss, ssim, ssim_mse, gradient_loss, psnr, gradient_ssim_loss, PerceptualLoss, film_loss
+from losses import separate_loss, combined_loss, interpolation_loss, ssim, gradient_loss, gradient_ssim_loss, PerceptualLoss, film_loss
 from train import train, train_interpolation, train_diffusion, efficient_train
 from visualize import plot_losses_gan, visualize_dataset_sample, visualize_model_predictions, plot_losses
+from evaluation import Evaluator
 
-DATASET_PATH = '/ari/users/augur/data/OCT'
+DATASET_PATH = '/home/esad-ugur/Data/OCT'
 
 def fft_visualize():
     # Set device
@@ -77,7 +78,7 @@ def vis_main(method):
         # ).to(device)
         model = UNetUpsample(
             input_channels=1,
-            hidden_channels=64
+            hidden_channels=48
         ).to(device)
     elif method == 'diffusion':
         model = DiffusionInterpolator(
@@ -85,14 +86,15 @@ def vis_main(method):
             hidden_channels=64
         ).to(device)
     elif method == 'gan':
-        model = OCTGAN(hidden_channels_g=64, hidden_channels_d=64, device=device)
+        model = OCTGAN(dataset=dataset, hidden_channels_g=64, hidden_channels_d=64, device=device)
 
     # Try to load the latest checkpoint
     # checkpoint_dir = 'checkpoints/checkpoints_20250421_180327'
-    checkpoint_dir = 'checkpoints/checkpoints_20250518_003621'
+    checkpoint_dir = 'checkpoints/best-model'
     if os.path.exists(checkpoint_dir):
+        evaluator = Evaluator()
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-        checkpoint = [c for c in checkpoints if '100' in c][0]
+        checkpoint = [c for c in checkpoints if '200' in c][0]
         if checkpoints:
             latest_checkpoint = os.path.join(checkpoint_dir, checkpoint)
             checkpoint = torch.load(latest_checkpoint, map_location=device)
@@ -104,7 +106,7 @@ def vis_main(method):
             
             # Visualize model predictions
             for i in range(10):  # Visualize predictions for first 3 samples
-                visualize_model_predictions(model, dataset, device, method, sample_idx=i)
+                visualize_model_predictions(model, evaluator, dataset, device, method, sample_idx=i)
 
 def main(method, loss_name, optimizer_choice):
     # Set device
@@ -272,6 +274,6 @@ def main(method, loss_name, optimizer_choice):
         logging.info(f"Loss plot is saved")
 
 if __name__ == '__main__':
-    # vis_main('interpolation')
-    main('gan', 'film', '')
+    vis_main('interpolation')
+    # main('gan', 'film', '')
     # fft_visualize()
