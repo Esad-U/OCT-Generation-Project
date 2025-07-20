@@ -88,7 +88,7 @@ def visualize_interpolations(original_odd, original_even, generated_even, eval_m
     axes[1, num_timesteps//2].set_title("Original Even Frames", pad=10)
     axes[2, num_timesteps//2].set_title("Generated Even Frames", pad=10)
     # add text below the figure
-    fig.text(0.5, 0.04, f'SSIM: {eval_metrics['ssim']}, PSNR: {eval_metrics['psnr']}, FID: {eval_metrics['fid']}, LPIPS: {eval_metrics['lpips']}', ha='center', va='center', fontsize=14)
+    fig.text(0.5, 0.04, f'SSIM: {eval_metrics['ssim']}, PSNR: {eval_metrics['psnr']}', ha='center', va='center', fontsize=14)
 
     # Reconstruct and plot images
     for t in range(num_timesteps):
@@ -287,7 +287,7 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
             generated_frames.append(generated.cpu().squeeze())
 
         for i in range(len(generated_frames)):
-            generated_frames[i] = match_contrast(generated_frames[i], original_even_frames[0, i])
+            generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
         generated_frames = torch.stack(generated_frames)
     
@@ -323,6 +323,70 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
         #     odd_frames.squeeze().cpu().numpy(), 
         #     generated_frames.numpy(), 
         # )
+
+def evaluate_model_predictions(model, evaluator, dataset, device, method):
+    
+    if method == 'gan':
+        model.generator.eval()
+    else:
+        model.eval()
+    
+    # Get sample data
+    # odd_frames, original_even_frames = dataset[sample_idx]
+    # odd_frames = odd_frames.unsqueeze(0).to(device)
+    # original_even_frames = original_even_frames.unsqueeze(0).to(device)
+    for s in dataset:
+        sequence = s
+        sequence = sequence.unsqueeze(0).to(device)
+        odd_frames = sequence[:, ::2]
+        original_even_frames = sequence[:, 1::2]
+        generated_frames = []
+        
+        with torch.no_grad():
+            # Generate each even frame
+            for t in range(original_even_frames.shape[1]):
+                # Get surrounding odd frames as condition
+                if method == 'unet':
+                    if t < original_even_frames.shape[1] - 1:
+                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    else:
+                        condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    
+                    # Create time tensor
+                    time = torch.tensor([t / original_even_frames.shape[1]]).to(device)
+                        
+                    # noise = (odd_frames[:, t] + odd_frames[:, t+1]) / 2
+                    # noise = torch.rand(original_even_frames[:, t].shape).to(device)
+                    # noise = original_even_frames[:, t]
+
+                    # Generate even frame
+                    # generated = model(noise, condition, time)
+                    generated = model(condition, time)
+                elif method == 'interpolation':
+                    frame1 = odd_frames[:, t].unsqueeze(1)
+                    frame2 = odd_frames[:, t+1].unsqueeze(1)
+                    generated = model(frame1, frame2)
+                elif method == 'gan':
+                    frame1 = odd_frames[:, t].unsqueeze(1)
+                    frame2 = odd_frames[:, t+1].unsqueeze(1)
+                    generated = model.generator(frame1, frame2)
+                elif method == 'diffusion':
+                    condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
+                    generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
+
+                generated_frames.append(generated.cpu().squeeze())
+
+            # for i in range(len(generated_frames)):
+            #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+
+            generated_frames = torch.stack(generated_frames)
+        
+        original_even_frames = original_even_frames.squeeze().cpu()
+
+        evaluation_results = evaluator.benchmark_without_visualization(original_even_frames, generated_frames)
+
+    if evaluation_results:
+        print(f"Average metrics on dataset ({evaluator.data_count})=> SSIM: {evaluator.dataset_averages['ssim'] / evaluator.data_count} - PSNR: {evaluator.dataset_averages['psnr'] / evaluator.data_count}")
 
 def plot_losses(train_losses, test_losses, save_path=None):
     plt.figure(figsize=(10, 6))
