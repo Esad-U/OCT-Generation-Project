@@ -89,12 +89,12 @@ def vis_main(method):
         model = OCTGAN(dataset=dataset, hidden_channels_g=48, hidden_channels_d=48, device=device)
 
     # Try to load the latest checkpoint
-    checkpoint_dir = 'checkpoints/checkpoints_20250720_164057'
+    checkpoint_dir = 'checkpoints/checkpoints_20250720_233625'
     # checkpoint_dir = 'checkpoints/best-model'
     if os.path.exists(checkpoint_dir):
         evaluator = Evaluator()
         checkpoints = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-        checkpoint = [c for c in checkpoints if '100' in c][0]
+        checkpoint = [c for c in checkpoints if '200' in c][0]
         # print checkpoint properties
 
         if checkpoints:
@@ -117,11 +117,11 @@ def main(method, loss_name, optimizer_choice):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    BATCH_SIZE = 32
+    BATCH_SIZE = 16
     NUM_EPOCHS = 100
     LEARNING_RATE = 1e-5
     IMAGE_SIZE = 256
-    HIDDEN_CHANNELS = 48
+    HIDDEN_CHANNELS = 64
     TIME_EMBED_DIM = 32
     CHECKPOINT_FREQ = 10
     
@@ -189,8 +189,7 @@ def main(method, loss_name, optimizer_choice):
     elif method == 'gan':
         model = OCTGAN(
             dataset=train_dataset,
-            hidden_channels_g=48,
-            hidden_channels_d=48,
+            hidden_channels_g=64,
             device=device
         )
 
@@ -212,12 +211,8 @@ def main(method, loss_name, optimizer_choice):
         loss = interpolation_loss
     elif loss_name == 'ssim':
         loss = ssim
-    elif loss_name == 'ssim_mse':
-        loss = ssim_mse
     elif loss_name == 'gradient':
         loss = gradient_loss
-    elif loss_name == 'psnr':
-        loss = psnr
     elif loss_name == 'gradient_ssim':
         loss = gradient_ssim_loss
     elif loss_name == 'perceptual':
@@ -256,9 +251,7 @@ def main(method, loss_name, optimizer_choice):
         train_diffusion(model, train_loader, optimizer, loss, device, NUM_EPOCHS, CHECKPOINT_FREQ, checkpoint_dir=checkpoint_dir)
     elif method == 'gan':
         # g, d, fd = model.train(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
-        g, d, td = model.train_no_fft(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
-    elif method == 'tsgan':
-        train_tsgan(generator1, discriminator1, generator2, discriminator2, train_loader, CHECKPOINT_FREQ, checkpoint_dir, NUM_EPOCHS)
+        g, d = model.train_no_fft(train_loader, NUM_EPOCHS, CHECKPOINT_FREQ, BATCH_SIZE, checkpoint_dir=checkpoint_dir)
 
     # Save final model
     if method == 'gan':
@@ -279,5 +272,5 @@ def main(method, loss_name, optimizer_choice):
 
 if __name__ == '__main__':
     # vis_main('interpolation')
-    main('interpolation', 'film', 'adam')
+    main('gan', '', '')
     # fft_visualize()

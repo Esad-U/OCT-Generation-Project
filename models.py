@@ -239,12 +239,10 @@ class UNetUpsample(nn.Module):
     def _double_conv(self, in_channels, out_channels):
         return nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(out_channels),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(out_channels),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
     
