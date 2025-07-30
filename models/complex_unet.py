@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from generic import SelfAttention
+from .generic import SelfAttention
 
 class ComplexUNetLarge(nn.Module):
     def __init__(self, input_channels, condition_channels, hidden_channels, time_embed_dim):

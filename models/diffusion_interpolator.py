@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from generic import SelfAttention
+from .generic import SelfAttention
 
 class DiffusionInterpolator(nn.Module):
     def __init__(self, input_channels, hidden_channels, device='cuda', timesteps=1000):
