@@ -3,7 +3,7 @@ import torch.nn as nn
 import logging
 import os
 
-from losses import PerceptualStyleLoss
+from losses.loss_functions import PerceptualStyleLoss
 
 def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     os.makedirs(checkpoint_dir, exist_ok=True)

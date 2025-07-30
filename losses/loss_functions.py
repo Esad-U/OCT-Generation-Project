@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 
-from utils import reconstruct_image
+from utils.utils import reconstruct_image
 from kornia.losses import psnr_loss
 from kornia.filters import sobel
 

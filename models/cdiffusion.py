@@ -10,7 +10,7 @@ import os
 from typing import Tuple, Optional
 import matplotlib.pyplot as plt
 
-from data import EfficientDataset
+from data.data import EfficientDataset
 
 class SinusoidalPositionEmbedding(nn.Module):
     """Sinusoidal position embedding for timestep encoding"""

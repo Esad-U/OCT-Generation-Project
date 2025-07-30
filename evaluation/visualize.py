@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from skimage.exposure import match_histograms
 
-from utils import reconstruct_image, sample_diffusion
+from utils.utils import reconstruct_image, sample_diffusion
 
 def visualize_results(original_odd, original_even, generated_even, save_path=None):
     """Visualize original and generated sequences with reconstructed images"""
