@@ -96,8 +96,25 @@ def train_main(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = get_model(args.method, args.hidden_channels, device, train_dataset)
-    optimizer = get_optimizer(args.optimizer, model, args.lr)
+    if args.method == 'interpolation':
+        optimizer = get_optimizer(args.optimizer, model, args.lr)
     loss_fn = get_loss_fn(args.loss, device)
+
+    if args.finetune:
+        checkpoint_dir = args.ckpt or 'checkpoints/latest'
+        checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
+        checkpoint_file = [i for i in checkpoint_files if '200' in i][0]
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
+
+        if not checkpoint_path or not os.path.exists(checkpoint_path):
+            print(f"No valid checkpoint found at {checkpoint_path}")
+            return
+
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        if args.method == 'gan':
+            model.generator.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint['model_state_dict'])
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     checkpoint_dir = f'checkpoints/checkpoints_{timestamp}'
@@ -119,8 +136,12 @@ def train_main(args):
                         args.epochs, args.ckpt_freq, checkpoint_dir)
 
     elif args.method == 'gan':
-        g_losses, d_losses = model.train_no_fft(train_loader, args.epochs,
-                                                args.ckpt_freq, args.batch_size, checkpoint_dir)
+        if args.finetune:
+            g_losses, d_losses = model.finetune_with_discriminator(train_loader, args.epochs,
+                                                                    args.ckpt_freq, checkpoint_dir=checkpoint_dir)
+        else:
+            g_losses, d_losses = model.train_no_fft(train_loader, args.epochs,
+                                                    args.ckpt_freq, checkpoint_dir)
         plot_losses_gan(g_losses, d_losses, save_path=os.path.join(checkpoint_dir, 'loss.png'))
 
     model_path = os.path.join(checkpoint_dir, 'final_model.pt')
@@ -150,7 +171,8 @@ def evaluate_main(args):
 
     checkpoint_dir = args.ckpt or 'checkpoints/latest'
     checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-    checkpoint_path = os.path.join(checkpoint_dir, checkpoint_files[-1]) if checkpoint_files else None
+    checkpoint_file = [i for i in checkpoint_files if '200' in i][0]
+    checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
 
     if not checkpoint_path or not os.path.exists(checkpoint_path):
         print(f"No valid checkpoint found at {checkpoint_path}")
@@ -179,6 +201,7 @@ def parse_args():
     parser.add_argument('--loss', type=str, default='interpolation', help="Loss function name")
     parser.add_argument('--optimizer', type=str, default='adam', help="Optimizer name")
     parser.add_argument('--evaluate', action='store_true', help="Run evaluation instead of training")
+    parser.add_argument('--finetune', action='store_true', help="Run finetune instead of training from zero")
     parser.add_argument('--ckpt', type=str, default='', help="Checkpoint directory for evaluation")
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16)

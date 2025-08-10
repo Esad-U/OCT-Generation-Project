@@ -410,7 +410,7 @@ class OCTGAN():
 
         return g_losses, d_losses, fd_losses
 
-    def train_no_fft(self, train_loader, num_epochs, checkpoint_freq, batch_size, lr=2e-4, beta1=0.5, log_interval=10, checkpoint_dir='checkpoints'):
+    def train_no_fft(self, train_loader, num_epochs, checkpoint_freq, lr=2e-4, beta1=0.5, log_interval=10, checkpoint_dir='checkpoints'):
         os.makedirs(checkpoint_dir, exist_ok=True)
         g_losses = []
         d_losses = []
@@ -507,6 +507,107 @@ class OCTGAN():
 
                 # REORGANIZE THIS LOSS !!!
                 g_loss = loss_G_adv * 0.1 + loss_G_film * 0.9
+
+                optimizer_g.zero_grad()
+                g_loss.backward()
+                optimizer_g.step()
+                    
+                if batch_idx % log_interval == 0:
+                    logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                                    f'Generator Loss: {g_loss.item():.4f} - Discriminator Loss: {d_loss.item():.4f}')
+
+                epoch_loss_g += g_loss.item()
+                epoch_loss_d += d_loss.item()
+
+            epoch_loss_g /= len(train_loader)
+            epoch_loss_d /= len(train_loader)
+
+            g_losses.append(epoch_loss_g)
+            d_losses.append(epoch_loss_d)
+
+            # scheduler_g.step()
+            # scheduler_d.step()
+
+            if (epoch + 1) % checkpoint_freq == 0:
+                checkpoint_path = os.path.join(checkpoint_dir, f'gen_epoch_{epoch+1}.pt')
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.generator.state_dict(),
+                    'optimizer_state_dict': optimizer_g.state_dict(),
+                }, checkpoint_path)
+                logging.info(f'Saved checkpoint to {checkpoint_path}')
+
+        return g_losses, d_losses
+
+    def finetune_with_discriminator(self, train_loader, num_epochs, checkpoint_freq, lr=2e-4, beta1=0.5, log_interval=10, checkpoint_dir='checkpoints'):
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        g_losses = []
+        d_losses = []
+
+        criterion = nn.BCELoss()
+
+        optimizer_g = optim.Adam(self.generator.parameters(), lr=lr, betas=(beta1, 0.999))
+        optimizer_d = optim.Adam(self.discriminator.parameters(), lr=lr/2, betas=(beta1, 0.999))
+
+        for epoch in range(num_epochs):
+            # Training phase
+
+            # Initialize epoch losses
+            epoch_loss_g = 0
+            epoch_loss_d = 0
+
+            for batch_idx, sequence in enumerate(train_loader):
+                sequence = sequence.to(self.device)
+
+                pre = sequence[:, 0].unsqueeze(1) # (B, 1, H, W)
+                central = sequence[:, 1].unsqueeze(1)
+                post = sequence[:, 2].unsqueeze(1)
+
+                self.generator.eval()
+                # Generate the fake image(s) using the model
+                with torch.no_grad():
+                    # central_fake = self.generator(pre, post).unsqueeze(1)
+                    pre_central = self.generator(pre, central).unsqueeze(1)
+                    central_post = self.generator(central, post).unsqueeze(1)
+                    central_fake_2 = self.generator(pre_central, central_post).unsqueeze(1)
+
+                # Train discriminator
+                self.discriminator.train()
+                real_outputs = self.discriminator(central, pre, post)
+                real_labels_d = torch.ones_like(real_outputs)
+                # real_labels_d = torch.rand(real_outputs.shape, device=self.device) * 0.05 + 0.95
+                real_loss = criterion(real_outputs, real_labels_d)
+
+                fake_outputs = self.discriminator(central_fake_2.detach(), pre_central.detach(), central_post.detach())
+
+                fake_labels_d = torch.zeros_like(fake_outputs)
+                # fake_labels_d = torch.rand(fake_outputs.shape, device=self.device) * 0.05
+                fake_loss = criterion(fake_outputs, fake_labels_d)
+
+                d_loss = (real_loss + fake_loss) * 0.5
+
+                optimizer_d.zero_grad()
+                d_loss.backward()
+                optimizer_d.step()
+                # Train discriminator ends
+
+                # Train Generator
+                self.generator.train()
+                self.discriminator.eval()
+
+                ## Regenerate for generator training
+                # central_fake = self.generator(pre, post).unsqueeze(1)
+                pre_central = self.generator(pre, central).unsqueeze(1)
+                central_post = self.generator(central, post).unsqueeze(1)
+                central_fake_2 = self.generator(pre_central, central_post).unsqueeze(1)
+
+                fake_outputs = self.discriminator(central_fake_2.detach(), pre_central.detach(), central_post.detach())
+                # real_labels = torch.rand(fake_outputs_d.shape, device=self.device) * 0.05 + 0.95
+                real_labels = torch.ones_like(fake_outputs)
+                loss_G_adv = criterion(fake_outputs, real_labels)
+
+                # REORGANIZE THIS LOSS !!!
+                g_loss = loss_G_adv
 
                 optimizer_g.zero_grad()
                 g_loss.backward()
