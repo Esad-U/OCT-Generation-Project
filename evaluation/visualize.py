@@ -81,7 +81,7 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
 def visualize_interpolations(original_odd, original_even, generated_even, eval_metrics, save_path=None):
     """Visualize reconstructed images"""
     num_timesteps = original_even.shape[0]
-    fig, axes = plt.subplots(3, num_timesteps, figsize=(20, 8))
+    fig, axes = plt.subplots(3, num_timesteps, figsize=(num_timesteps * 2, 8))
     
     # Plot titles
     axes[0, num_timesteps//2].set_title("Odd Frames", pad=10)
@@ -91,15 +91,20 @@ def visualize_interpolations(original_odd, original_even, generated_even, eval_m
     fig.text(0.5, 0.04, f'SSIM: {eval_metrics['ssim']}, PSNR: {eval_metrics['psnr']}', ha='center', va='center', fontsize=14)
 
     # Reconstruct and plot images
-    for t in range(num_timesteps):
+    r = num_timesteps if num_timesteps % 2 else num_timesteps - 1
+    for t in range(r):
         if t < len(original_odd):
+            # if t + 2 == len(original_odd):
+            #     axes[0, t+1].imshow(original_odd[t+1], cmap='gray')
+            #     axes[0, t+1].axis('off')
             axes[0, t].imshow(original_odd[t], cmap='gray')
             axes[0, t].axis('off')
         # A trick to reconstruct the even frames using the odd frames
         # recon_gen_even = reconstruct_image(generated_even[t, 0], (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
         
         axes[1, t].imshow(original_even[t], cmap='gray')
-        axes[2, t].imshow(generated_even[t], cmap='gray')
+        if t < generated_even.shape[0]:
+            axes[2, t].imshow(generated_even[t], cmap='gray')
         axes[1, t].axis('off')
         axes[2, t].axis('off')
     
@@ -273,10 +278,14 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
                 # generated = model(noise, condition, time)
                 generated = model(condition, time)
             elif method == 'interpolation':
+                if t+1 == odd_frames.shape[1]:
+                    continue
                 frame1 = odd_frames[:, t].unsqueeze(1)
                 frame2 = odd_frames[:, t+1].unsqueeze(1)
                 generated = model(frame1, frame2)
             elif method == 'gan':
+                if t+1 == odd_frames.shape[1]:
+                    continue
                 frame1 = odd_frames[:, t].unsqueeze(1)
                 frame2 = odd_frames[:, t+1].unsqueeze(1)
                 generated = model.generator(frame1, frame2)
@@ -286,8 +295,8 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
 
             generated_frames.append(generated.cpu().squeeze())
 
-        for i in range(len(generated_frames)):
-            generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+        # for i in range(len(generated_frames)):
+        #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
         generated_frames = torch.stack(generated_frames)
     
@@ -300,7 +309,7 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
             odd_frames.squeeze().cpu().numpy(),
             original_even_frames.numpy(),
             generated_frames.numpy(),
-            save_path=os.path.join(save_dir, f'sample_{sample_idx}_reconstructed.png'),
+            save_path=os.path.join(save_dir, f'sample_{sample_idx}.png'),
             eval_metrics=evaluation_results
         )
     else:
@@ -363,10 +372,14 @@ def evaluate_model_predictions(model, evaluator, dataset, device, method):
                     # generated = model(noise, condition, time)
                     generated = model(condition, time)
                 elif method == 'interpolation':
+                    if t+1 == odd_frames.shape[1]:
+                        continue
                     frame1 = odd_frames[:, t].unsqueeze(1)
                     frame2 = odd_frames[:, t+1].unsqueeze(1)
                     generated = model(frame1, frame2)
                 elif method == 'gan':
+                    if t+1 == odd_frames.shape[1]:
+                        continue
                     frame1 = odd_frames[:, t].unsqueeze(1)
                     frame2 = odd_frames[:, t+1].unsqueeze(1)
                     generated = model.generator(frame1, frame2)

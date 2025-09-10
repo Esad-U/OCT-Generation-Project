@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import logging
 import os
 
@@ -379,6 +380,141 @@ def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device
                     f'Test Loss: {avg_test_loss:.6f}')
         
         # Save checkpoint if test loss improved
+        if (epoch + 1) % checkpoint_freq == 0:
+            checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_train_loss,
+                'test_loss': avg_test_loss,
+                'train_losses': train_losses,
+                'test_losses': test_losses
+            }, checkpoint_path)
+            logging.info(f'Saved checkpoint to {checkpoint_path}')
+        
+        # Save best model
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            best_model_path = os.path.join(checkpoint_dir, 'best_model.pt')
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_train_loss,
+                'test_loss': avg_test_loss,
+                'train_losses': train_losses,
+                'test_losses': test_losses
+            }, best_model_path)
+            logging.info(f'New best model saved with test loss: {best_test_loss:.6f}')
+    
+    return train_losses, test_losses
+
+def efficient_train_deep_supervision(model, train_loader, test_loader, optimizer, loss_fn, device, 
+                                     num_epochs, checkpoint_freq, log_interval=10, checkpoint_dir='checkpoints'):
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    train_losses = []
+    test_losses = []
+    best_test_loss = float('inf')
+
+    perceptual_gram = PerceptualStyleLoss().to(device)
+    
+    for epoch in range(num_epochs):
+        # ---------------- Training ----------------
+        model.train()
+        epoch_loss = 0.0
+        for batch_idx, sequence in enumerate(train_loader):
+            sequence = sequence.to(device)
+            
+            optimizer.zero_grad()
+
+            pre = sequence[:, 0].unsqueeze(1)   # frame1
+            central = sequence[:, 1].unsqueeze(1)  # target
+            post = sequence[:, 2].unsqueeze(1)  # frame2
+
+            outputs = model(pre, post)  # dict: {"main", "aux2", "aux3"}
+            central_fake = outputs["main"]
+
+            # deep supervision losses
+            loss_main = loss_fn(central_fake, central, perceptual_gram, weights=[1,1,1])
+
+            # aux2
+            if "aux2" in outputs:
+                aux2_pred = F.interpolate(outputs["aux2"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                loss_aux2 = F.mse_loss(aux2_pred, central)
+            else:
+                loss_aux2 = 0.0
+
+            # aux3
+            if "aux3" in outputs:
+                aux3_pred = F.interpolate(outputs["aux3"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                loss_aux3 = F.mse_loss(aux3_pred, central)
+            else:
+                loss_aux3 = 0.0
+
+            # combine
+            if epoch < num_epochs / 2:
+                loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
+            else:
+                loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            
+            if batch_idx % log_interval == 0:
+                logging.info(f'Epoch {epoch}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | '
+                             f'Train Loss: {loss.item():.6f}')
+        
+        avg_train_loss = epoch_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
+        
+        # ---------------- Testing ----------------
+        model.eval()
+        test_loss = 0.0
+        with torch.no_grad():
+            for sequence in test_loader:
+                sequence = sequence.to(device)
+                
+                pre = sequence[:, 0].unsqueeze(1)
+                central = sequence[:, 1].unsqueeze(1)
+                post = sequence[:, 2].unsqueeze(1)
+
+                outputs = model(pre, post)
+                central_fake = outputs["main"]
+
+                loss_main = loss_fn(central_fake, central, perceptual_gram, weights=[1,1,1])
+
+                # aux2
+                if "ds2" in outputs:
+                    aux2_pred = F.interpolate(outputs["ds2"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                    loss_aux2 = F.mse_loss(aux2_pred, central)
+                else:
+                    loss_aux2 = 0.0
+
+                # aux3
+                if "ds3" in outputs:
+                    aux3_pred = F.interpolate(outputs["ds3"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                    loss_aux3 = F.mse_loss(aux3_pred, central)
+                else:
+                    loss_aux3 = 0.0
+
+                if epoch < num_epochs / 2:
+                    loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
+                else:
+                    loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+
+                test_loss += loss.item()
+        
+        avg_test_loss = test_loss / len(test_loader)
+        test_losses.append(avg_test_loss)
+        
+        logging.info(f'Epoch {epoch}/{num_epochs} | '
+                     f'Train Loss: {avg_train_loss:.6f} | '
+                     f'Test Loss: {avg_test_loss:.6f}')
+        
+        # Save checkpoint periodically
         if (epoch + 1) % checkpoint_freq == 0:
             checkpoint_path = os.path.join(checkpoint_dir, f'model_epoch_{epoch+1}.pt')
             torch.save({

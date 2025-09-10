@@ -7,7 +7,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from models.interpolation_unet import InterpolationUNet, UNetUpsample
+from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced
 from models.diffusion_interpolator import DiffusionInterpolator
 from models.octgan import OCTGAN
 from data.fourier_dataset import ComplexFourierDataset
@@ -17,7 +17,7 @@ from losses.loss_functions import (
     separate_loss, combined_loss, interpolation_loss, ssim,
     gradient_loss, gradient_ssim_loss, PerceptualLoss, film_loss
 )
-from train.train import train, train_interpolation, train_diffusion, efficient_train
+from train.train import train, train_interpolation, train_diffusion, efficient_train, efficient_train_deep_supervision
 from evaluation.visualize import (
     plot_losses_gan, visualize_dataset_sample, visualize_model_predictions,
     plot_losses, evaluate_model_predictions
@@ -54,11 +54,12 @@ def get_dataset(method, image_size):
 
 def get_model(method, hidden_channels, device, dataset=None):
     if method == 'interpolation':
-        return UNetUpsample(input_channels=1, hidden_channels=hidden_channels).to(device)
+        # return UNetUpsample(input_channels=1, hidden_channels=hidden_channels).to(device)
+        return UNetUpsampleEnhanced(hidden_channels=hidden_channels).to(device)
     elif method == 'diffusion':
         return DiffusionInterpolator(input_channels=1, hidden_channels=hidden_channels).to(device)
     elif method == 'gan':
-        return OCTGAN(dataset=dataset, hidden_channels_g=hidden_channels, device=device)
+        return OCTGAN(g_hidden=hidden_channels)
     else:
         raise ValueError(f"Unsupported method: {method}")
 
@@ -127,8 +128,20 @@ def train_main(args):
     logging.info(f"Training started with method={args.method}, loss={args.loss}, optimizer={args.optimizer}")
 
     if args.method == 'interpolation':
-        train_loss, test_loss = efficient_train(model, train_loader, test_loader, optimizer, loss_fn,
-                                                device, args.epochs, args.ckpt_freq, checkpoint_dir)
+        # train_loss, test_loss = efficient_train(model, train_loader, test_loader, optimizer, loss_fn,
+        #                                         device, args.epochs, args.ckpt_freq, checkpoint_dir=checkpoint_dir)
+        train_loss, test_loss = efficient_train_deep_supervision(
+            model=model,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            device=device,
+            num_epochs=args.epochs,
+            checkpoint_freq=args.ckpt_freq,
+            log_interval=20,
+            checkpoint_dir=checkpoint_dir
+        )
         plot_losses(train_loss, test_loss, save_path=os.path.join(checkpoint_dir, 'loss.png'))
 
     elif args.method == 'diffusion':
@@ -140,9 +153,9 @@ def train_main(args):
             g_losses, d_losses = model.finetune_with_discriminator(train_loader, args.epochs,
                                                                     args.ckpt_freq, checkpoint_dir=checkpoint_dir)
         else:
-            g_losses, d_losses = model.train_no_fft(train_loader, args.epochs,
-                                                    args.ckpt_freq, checkpoint_dir)
-        plot_losses_gan(g_losses, d_losses, save_path=os.path.join(checkpoint_dir, 'loss.png'))
+            history = model.train_gan(train_loader=train_loader, val_loader=test_loader, device=device, 
+                                                 num_epochs=args.epochs, checkpoint_dir=checkpoint_dir)
+        # plot_losses_gan(g_losses, d_losses, save_path=os.path.join(checkpoint_dir, 'loss.png'))
 
     model_path = os.path.join(checkpoint_dir, 'final_model.pt')
     if args.method == 'gan':
@@ -166,12 +179,11 @@ def evaluate_main(args):
     elif args.method == 'diffusion':
         model = DiffusionInterpolator(input_channels=1, hidden_channels=args.hidden_channels).to(device)
     elif args.method == 'gan':
-        model = OCTGAN(dataset=dataset, hidden_channels_g=args.hidden_channels,
-                       hidden_channels_d=args.hidden_channels, device=device)
+        model = OCTGAN(dataset=dataset, hidden_channels_g=args.hidden_channels, device=device)
 
     checkpoint_dir = args.ckpt or 'checkpoints/latest'
     checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-    checkpoint_file = [i for i in checkpoint_files if '200' in i][0]
+    checkpoint_file = [i for i in checkpoint_files if '30' in i][0]
     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
 
     if not checkpoint_path or not os.path.exists(checkpoint_path):
@@ -189,7 +201,7 @@ def evaluate_main(args):
     evaluator = Evaluator()
     for i in range(3):
         visualize_dataset_sample(dataset, args.method, sample_idx=i, save_path=f'visualizations/sample_{i}')
-    for i in range(10):
+    for i in range(7):
         visualize_model_predictions(model, evaluator, dataset, device, args.method, sample_idx=i)
     evaluate_model_predictions(model, evaluator, dataset, device, args.method)
 

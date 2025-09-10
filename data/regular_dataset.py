@@ -23,8 +23,8 @@ class RegularDataset(Dataset):
                             for file in os.listdir(folder_path) 
                             if file.lower().endswith(('.png', '.jpg', '.jpeg'))])
 
-        if len(image_files) != 19:
-            raise ValueError(f"Folder {folder_path} contains {len(image_files)} images instead of 19.")
+        # if len(image_files) != 19:
+        #     raise ValueError(f"Folder {folder_path} contains {len(image_files)} images instead of 19.")
 
         sequence = []
         

@@ -1,0 +1,7 @@
+__pycache__
+checkpoints
+predictions
+sequence_predictions
+visualizations
+nohup.out
+training.log
