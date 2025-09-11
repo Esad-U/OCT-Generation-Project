@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from .generic import SelfAttention, SelfAttentionUpdated, SEBlock, ResidualBlock
+from .generic import SelfAttention, SEBlock, ResidualBlock
 
 class InterpolationUNet(nn.Module):
     def __init__(self, input_channels, hidden_channels):

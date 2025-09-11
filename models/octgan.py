@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from torch.nn.utils import spectral_norm
 from losses.loss_functions import PerceptualStyleLoss, film_loss
-from .generic import SelfAttentionUpdated, SEBlock, ResidualBlock
+from .generic import SelfAttention, SEBlock, ResidualBlock
 
 
 class Generator(nn.Module):
@@ -142,9 +142,9 @@ class OCTGAN():
         - target: (B,1,H,W) ground truth middle frame
         """
 
-        frame1 = batch[:, 0].to(device)
-        frame2 = batch[:, 2].to(device)
-        target = batch[:, 1].to(device)
+        frame1 = batch[:, 0].unsqueeze(1).to(device)
+        frame2 = batch[:, 2].unsqueeze(1).to(device)
+        target = batch[:, 1].unsqueeze(1).to(device)
 
         # --------------------
         # 1) Update D
@@ -256,9 +256,9 @@ class OCTGAN():
             val_loss_l1 = 0.0
             with torch.no_grad():
                 for batch in val_loader:
-                    frame1 = batch[:, 0].to(device)
-                    frame2 = batch[:, 2].to(device)
-                    target = batch[:, 1].to(device)
+                    frame1 = batch[:, 0].unsqueeze(1).to(device)
+                    frame2 = batch[:, 2].unsqueeze(1).to(device)
+                    target = batch[:, 1].unsqueeze(1).to(device)
 
                     fake = self.netG(frame1, frame2)
                     val_loss_l1 += F.l1_loss(fake, target).item()
