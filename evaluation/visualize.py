@@ -243,7 +243,7 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
     """
     os.makedirs(save_dir, exist_ok=True)
     if method == 'gan':
-        model.generator.eval()
+        model.netG.eval()
     else:
         model.eval()
     
@@ -288,15 +288,15 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
                     continue
                 frame1 = odd_frames[:, t].unsqueeze(1)
                 frame2 = odd_frames[:, t+1].unsqueeze(1)
-                generated = model.generator(frame1, frame2)
+                generated = model.netG(frame1, frame2)
             elif method == 'diffusion':
                 condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                 generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
             generated_frames.append(generated.cpu().squeeze())
 
-        # for i in range(len(generated_frames)):
-        #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+        for i in range(len(generated_frames)):
+            generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
         generated_frames = torch.stack(generated_frames)
     
@@ -336,7 +336,7 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
 def evaluate_model_predictions(model, evaluator, dataset, device, method):
     
     if method == 'gan':
-        model.generator.eval()
+        model.netG.eval()
     else:
         model.eval()
     
@@ -382,15 +382,15 @@ def evaluate_model_predictions(model, evaluator, dataset, device, method):
                         continue
                     frame1 = odd_frames[:, t].unsqueeze(1)
                     frame2 = odd_frames[:, t+1].unsqueeze(1)
-                    generated = model.generator(frame1, frame2)
+                    generated = model.netG(frame1, frame2)
                 elif method == 'diffusion':
                     condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                     generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
                 generated_frames.append(generated.cpu().squeeze())
 
-            # for i in range(len(generated_frames)):
-            #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+            for i in range(len(generated_frames)):
+                generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
             generated_frames = torch.stack(generated_frames)
         

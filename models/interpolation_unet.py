@@ -201,7 +201,7 @@ class UNetUpsampleEnhanced(nn.Module):
         self.ds2 = nn.Conv2d(hc * 2, out_channels, kernel_size=1)  # from conv_up2 (H/2 -> upsample to H)
 
         # Activation
-        self.final_activation = nn.Sigmoid()  # assume input images normalized to [0,1]
+        self.final_activation = nn.Tanh()  # assume input images normalized to [0,1]
 
     def forward(self, frame1, frame2):
         """

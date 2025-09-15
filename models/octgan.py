@@ -44,7 +44,7 @@ class Generator(nn.Module):
         self.conv_up1 = ResidualBlock(hc*2 + hc, hc)
 
         self.outc = nn.Conv2d(hc, out_channels, 1)
-        self.final_act = nn.Sigmoid()  # assume targets normalized to [0,1]
+        self.final_act = nn.Tanh()  # assume targets normalized to [0,1]
 
     def forward(self, f1, f2):
         x = torch.cat([f1, f2], dim=1)  # (B,2,H,W)
@@ -198,7 +198,7 @@ class OCTGAN():
             'loss_l1': loss_l1.item()
         }
 
-    def train_gan(self, train_loader, val_loader, device,
+    def train_gan(self, train_loader, val_loader, device, checkpoint_freq,
                     num_epochs=50, checkpoint_dir="checkpoints_gan",
                     l1_weight=10.0, fm_weight=5.0, log_interval=50):
 
@@ -284,6 +284,26 @@ class OCTGAN():
                     "epoch": epoch
                 }, os.path.join(checkpoint_dir, "best_model.pt"))
                 logging.info(f"✅ Saved best model at epoch {epoch+1}")
+            
+            # Checkpoint
+            if not (epoch + 1) % checkpoint_freq:
+                torch.save({
+                    "netG": self.netG.state_dict(),
+                    "netD": self.netD.state_dict(),
+                    "optimG": self.optimG.state_dict(),
+                    "optimD": self.optimD.state_dict(),
+                    "epoch": epoch
+                }, os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt"))
+                logging.info(f"✅ Saved model at epoch {epoch+1}")
+        
+        torch.save({
+            "netG": self.netG.state_dict(),
+            "netD": self.netD.state_dict(),
+            "optimG": self.optimG.state_dict(),
+            "optimD": self.optimD.state_dict(),
+            "epoch": epoch
+        }, os.path.join(checkpoint_dir, f"model_final.pt"))
+        logging.info(f"✅ Saved final model")
 
         # -------------------
         # Plot losses

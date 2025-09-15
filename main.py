@@ -8,7 +8,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced
-from models.diffusion_interpolator import DiffusionInterpolator
+# from models.diffusion_interpolator import DiffusionInterpolator
 from models.octgan import OCTGAN
 from data.fourier_dataset import ComplexFourierDataset
 from data.regular_dataset import RegularDataset
@@ -154,7 +154,7 @@ def train_main(args):
                                                                     args.ckpt_freq, checkpoint_dir=checkpoint_dir)
         else:
             history = model.train_gan(train_loader=train_loader, val_loader=test_loader, device=device, 
-                                                 num_epochs=args.epochs, checkpoint_dir=checkpoint_dir)
+                                      checkpoint_freq=args.ckpt_freq, num_epochs=args.epochs, checkpoint_dir=checkpoint_dir)
         # plot_losses_gan(g_losses, d_losses, save_path=os.path.join(checkpoint_dir, 'loss.png'))
 
     model_path = os.path.join(checkpoint_dir, 'final_model.pt')
@@ -175,15 +175,15 @@ def evaluate_main(args):
         dataset = ComplexFourierDataset(root_dir='/storage/esad/data/OCT/test', image_size=128)
 
     if args.method == 'interpolation':
-        model = UNetUpsample(input_channels=1, hidden_channels=args.hidden_channels).to(device)
+        model = UNetUpsampleEnhanced(hidden_channels=args.hidden_channels).to(device)
     elif args.method == 'diffusion':
         model = DiffusionInterpolator(input_channels=1, hidden_channels=args.hidden_channels).to(device)
     elif args.method == 'gan':
-        model = OCTGAN(dataset=dataset, hidden_channels_g=args.hidden_channels, device=device)
+        model = OCTGAN(g_hidden=args.hidden_channels)
 
     checkpoint_dir = args.ckpt or 'checkpoints/latest'
     checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-    checkpoint_file = [i for i in checkpoint_files if '30' in i][0]
+    checkpoint_file = [i for i in checkpoint_files if 'final' in i][0]
     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
 
     if not checkpoint_path or not os.path.exists(checkpoint_path):
@@ -192,7 +192,7 @@ def evaluate_main(args):
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     if args.method == 'gan':
-        model.generator.load_state_dict(checkpoint['model_state_dict'])
+        model.netG.load_state_dict(checkpoint['netG'])
     else:
         model.load_state_dict(checkpoint['model_state_dict'])
 
