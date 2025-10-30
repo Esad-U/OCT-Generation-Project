@@ -7,17 +7,16 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced
-# from models.diffusion_interpolator import DiffusionInterpolator
+from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced, UNetUpsampleTransDecoder
 from models.octgan import OCTGAN
 from data.fourier_dataset import ComplexFourierDataset
 from data.regular_dataset import RegularDataset
 from data.efficient_dataset import EfficientDataset
 from losses.loss_functions import (
-    separate_loss, combined_loss, interpolation_loss, ssim,
-    gradient_loss, gradient_ssim_loss, PerceptualLoss, film_loss
+    separate_loss, combined_loss, interpolation_loss,
+    gradient_loss, PerceptualLoss, film_loss, novel_loss
 )
-from train.train import train, train_interpolation, train_diffusion, efficient_train, efficient_train_deep_supervision
+from train.train import train, train_interpolation, efficient_train, efficient_train_deep_supervision
 from evaluation.visualize import (
     plot_losses_gan, visualize_dataset_sample, visualize_model_predictions,
     plot_losses, evaluate_model_predictions
@@ -25,11 +24,11 @@ from evaluation.visualize import (
 from evaluation.evaluation import Evaluator
 
 
-DATASET_PATH = '/home/esad-ugur/Data/OCT'
+DATASET_PATH = '/mnt/storage/Data/OCT'
 
 
 def get_dataset(method, image_size):
-    if method in ['interpolation', 'gan']:
+    if method in ['interpolation', 'gan', 'diffusion']:
         train_dataset = EfficientDataset(
             image_dir=f'{DATASET_PATH}/train_all',
             image_size=image_size,
@@ -55,9 +54,8 @@ def get_dataset(method, image_size):
 def get_model(method, hidden_channels, device, dataset=None):
     if method == 'interpolation':
         # return UNetUpsample(input_channels=1, hidden_channels=hidden_channels).to(device)
-        return UNetUpsampleEnhanced(hidden_channels=hidden_channels).to(device)
-    elif method == 'diffusion':
-        return DiffusionInterpolator(input_channels=1, hidden_channels=hidden_channels).to(device)
+        return UNetUpsampleTransDecoder(input_channels=1, hidden_channels=hidden_channels).to(device)
+        # return UNetUpsampleEnhanced(hidden_channels=hidden_channels).to(device)
     elif method == 'gan':
         return OCTGAN(g_hidden=hidden_channels)
     else:
@@ -69,11 +67,10 @@ def get_loss_fn(loss_name, device):
         'combined': combined_loss,
         'separate': separate_loss,
         'interpolation': interpolation_loss,
-        'ssim': ssim,
         'gradient': gradient_loss,
-        'gradient_ssim': gradient_ssim_loss,
-        'perceptual': PerceptualLoss(device),
-        'film': film_loss
+        # 'perceptual': PerceptualLoss(device),
+        'film': film_loss,
+        'novel': novel_loss
     }
     return losses.get(loss_name)
 
@@ -101,6 +98,7 @@ def train_main(args):
         optimizer = get_optimizer(args.optimizer, model, args.lr)
     loss_fn = get_loss_fn(args.loss, device)
 
+    ### FINETUNING CODE ###
     if args.finetune:
         checkpoint_dir = args.ckpt or 'checkpoints/latest'
         checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
@@ -116,6 +114,7 @@ def train_main(args):
             model.generator.load_state_dict(checkpoint['model_state_dict'])
         else:
             model.load_state_dict(checkpoint['model_state_dict'])
+    #######################
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     checkpoint_dir = f'checkpoints/checkpoints_{timestamp}'
@@ -128,25 +127,21 @@ def train_main(args):
     logging.info(f"Training started with method={args.method}, loss={args.loss}, optimizer={args.optimizer}")
 
     if args.method == 'interpolation':
-        # train_loss, test_loss = efficient_train(model, train_loader, test_loader, optimizer, loss_fn,
-        #                                         device, args.epochs, args.ckpt_freq, checkpoint_dir=checkpoint_dir)
-        train_loss, test_loss = efficient_train_deep_supervision(
-            model=model,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            optimizer=optimizer,
-            loss_fn=loss_fn,
-            device=device,
-            num_epochs=args.epochs,
-            checkpoint_freq=args.ckpt_freq,
-            log_interval=20,
-            checkpoint_dir=checkpoint_dir
-        )
+        train_loss, test_loss = efficient_train(model, train_loader, test_loader, optimizer, loss_fn,
+                                                device, args.epochs, args.ckpt_freq, checkpoint_dir=checkpoint_dir)
+        # train_loss, test_loss = efficient_train_deep_supervision(
+        #     model=model,
+        #     train_loader=train_loader,
+        #     test_loader=test_loader,
+        #     optimizer=optimizer,
+        #     loss_fn=loss_fn,
+        #     device=device,
+        #     num_epochs=args.epochs,
+        #     checkpoint_freq=args.ckpt_freq,
+        #     log_interval=20,
+        #     checkpoint_dir=checkpoint_dir
+        # )
         plot_losses(train_loss, test_loss, save_path=os.path.join(checkpoint_dir, 'loss.png'))
-
-    elif args.method == 'diffusion':
-        train_diffusion(model, train_loader, optimizer, loss_fn, device,
-                        args.epochs, args.ckpt_freq, checkpoint_dir)
 
     elif args.method == 'gan':
         if args.finetune:
@@ -175,7 +170,8 @@ def evaluate_main(args):
         dataset = ComplexFourierDataset(root_dir='/storage/esad/data/OCT/test', image_size=128)
 
     if args.method == 'interpolation':
-        model = UNetUpsampleEnhanced(hidden_channels=args.hidden_channels).to(device)
+        # model = UNetUpsampleEnhanced(hidden_channels=args.hidden_channels).to(device)
+        model = UNetUpsample(input_channels=1, hidden_channels=args.hidden_channels).to(device)
     elif args.method == 'diffusion':
         model = DiffusionInterpolator(input_channels=1, hidden_channels=args.hidden_channels).to(device)
     elif args.method == 'gan':
@@ -183,7 +179,7 @@ def evaluate_main(args):
 
     checkpoint_dir = args.ckpt or 'checkpoints/latest'
     checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-    checkpoint_file = [i for i in checkpoint_files if 'final' in i][0]
+    checkpoint_file = [i for i in checkpoint_files if '100' in i][0]
     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
 
     if not checkpoint_path or not os.path.exists(checkpoint_path):
@@ -199,7 +195,7 @@ def evaluate_main(args):
     print(f"Loaded checkpoint: {checkpoint_path}")
 
     evaluator = Evaluator()
-    for i in range(3):
+    for i in range(5):
         visualize_dataset_sample(dataset, args.method, sample_idx=i, save_path=f'visualizations/sample_{i}')
     for i in range(7):
         visualize_model_predictions(model, evaluator, dataset, device, args.method, sample_idx=i)
@@ -209,7 +205,7 @@ def evaluate_main(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="OCT AI Training and Evaluation")
     parser.add_argument('--method', type=str, required=True,
-                        choices=['interpolation', 'gan', 'diffusion'], help="Training method")
+                        choices=['interpolation', 'gan'], help="Training method")
     parser.add_argument('--loss', type=str, default='interpolation', help="Loss function name")
     parser.add_argument('--optimizer', type=str, default='adam', help="Optimizer name")
     parser.add_argument('--evaluate', action='store_true', help="Run evaluation instead of training")

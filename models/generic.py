@@ -5,51 +5,50 @@ import numpy as np
 
 # TODO: Implement a GAN model
 
-# class SelfAttention(nn.Module):
-#     def __init__(self, channels):
-#         super().__init__()
-#         self.channels = channels
-#         self.mha = nn.MultiheadAttention(channels, 8, batch_first=True)
-#         self.ln = nn.LayerNorm([channels])
-#         self.ff_self = nn.Sequential(
-#             nn.LayerNorm([channels]),
-#             nn.Linear(channels, channels),
-#             nn.GELU(),
-#             nn.Linear(channels, channels),
-#         )
-# 
-#     def forward(self, x):
-#         size = x.shape[-2:]
-#         x = x.view(-1, self.channels, size[0] * size[1]).swapaxes(1, 2)
-#         x_ln = self.ln(x)
-#         attention_value, _ = self.mha(x_ln, x_ln, x_ln)
-#         attention_value = attention_value + x
-#         attention_value = self.ff_self(attention_value) + attention_value
-#         return attention_value.swapaxes(2, 1).view(-1, self.channels, size[0], size[1])
-
-
 class SelfAttention(nn.Module):
-    """Lightweight spatial self-attention (single-head)."""
-    def __init__(self, in_channels):
+    def __init__(self, channels):
         super().__init__()
-        self.in_channels = in_channels
-        self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-        self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
-        self.gamma = nn.Parameter(torch.zeros(1))
+        self.channels = channels
+        self.mha = nn.MultiheadAttention(channels, 8, batch_first=True)
+        self.ln = nn.LayerNorm([channels])
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([channels]),
+            nn.Linear(channels, channels),
+            nn.GELU(),
+            nn.Linear(channels, channels),
+        )
 
     def forward(self, x):
-        # x: (B, C, H, W)
-        B, C, H, W = x.shape
-        q = self.query(x).view(B, -1, H * W)                # (B, Cq, N)
-        k = self.key(x).view(B, -1, H * W)                  # (B, Cq, N)
-        v = self.value(x).view(B, -1, H * W)                # (B, C, N)
+        size = x.shape[-2:]
+        x = x.view(-1, self.channels, size[0] * size[1]).swapaxes(1, 2)
+        x_ln = self.ln(x)
+        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        attention_value = attention_value + x
+        attention_value = self.ff_self(attention_value) + attention_value
+        return attention_value.swapaxes(2, 1).view(-1, self.channels, size[0], size[1])
 
-        attn = torch.bmm(q.permute(0, 2, 1), k)             # (B, N, N)
-        attn = F.softmax(attn / (q.size(1) ** 0.5), dim=-1) # spatial attention
-        out = torch.bmm(v, attn.permute(0, 2, 1))           # (B, C, N)
-        out = out.view(B, C, H, W)
-        return self.gamma * out + x
+# class SelfAttention(nn.Module):
+#     """Lightweight spatial self-attention (single-head)."""
+#     def __init__(self, in_channels):
+#         super().__init__()
+#         self.in_channels = in_channels
+#         self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+#         self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+#         self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+#         self.gamma = nn.Parameter(torch.zeros(1))
+# 
+#     def forward(self, x):
+#         # x: (B, C, H, W)
+#         B, C, H, W = x.shape
+#         q = self.query(x).view(B, -1, H * W)                # (B, Cq, N)
+#         k = self.key(x).view(B, -1, H * W)                  # (B, Cq, N)
+#         v = self.value(x).view(B, -1, H * W)                # (B, C, N)
+# 
+#         attn = torch.bmm(q.permute(0, 2, 1), k)             # (B, N, N)
+#         attn = F.softmax(attn / (q.size(1) ** 0.5), dim=-1) # spatial attention
+#         out = torch.bmm(v, attn.permute(0, 2, 1))           # (B, C, N)
+#         out = out.view(B, C, H, W)
+#         return self.gamma * out + x
 
 
 class SEBlock(nn.Module):

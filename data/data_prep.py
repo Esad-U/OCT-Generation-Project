@@ -22,7 +22,7 @@ def rename_directories_numerically(root_dir):
         if not os.path.isdir(folder_path):
             continue
         
-        new_folder_name = f"{i+1622}"
+        new_folder_name = f"{i+1}"
         new_folder_path = os.path.join(root_dir, new_folder_name)
         
         # Rename the folder
@@ -90,7 +90,7 @@ def flatten_dataset_structure(src_root='train', dst_root='train_all'):
     print(f"Images successfully moved to {dst_root}/")
 
 # Specify your root directory path
-root_data_directory = '/home/esad-ugur/Data/OCT/train'
+root_data_directory = '/mnt/storage/Data/MRI/organized'
 # rename_files_in_directory(root_data_directory)
-# rename_directories_numerically(root_data_directory) 
-flatten_dataset_structure('/home/esad-ugur/Data/LungCT/test', '/home/esad-ugur/Data/LungCT/test_all')
+rename_directories_numerically(root_data_directory) 
+# flatten_dataset_structure('/home/esad-ugur/Data/LungCT/test', '/home/esad-ugur/Data/LungCT/test_all')

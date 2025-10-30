@@ -78,11 +78,10 @@ def visualize_reconstructions(original_odd, original_even, generated_even, save_
     
     # plt.show()
 
-def visualize_interpolations(original_odd, original_even, generated_even, eval_metrics, save_path=None):
+def visualize_interpolations(i, original_odd, original_even, generated_even, eval_metrics, save_path=None):
     """Visualize reconstructed images"""
     num_timesteps = original_even.shape[0]
-    fig, axes = plt.subplots(3, num_timesteps, figsize=(num_timesteps * 2, 8))
-    
+    fig, axes = plt.subplots(3, num_timesteps+1, figsize=(num_timesteps * 2, 8))
     # Plot titles
     axes[0, num_timesteps//2].set_title("Odd Frames", pad=10)
     axes[1, num_timesteps//2].set_title("Original Even Frames", pad=10)
@@ -99,20 +98,26 @@ def visualize_interpolations(original_odd, original_even, generated_even, eval_m
             #     axes[0, t+1].axis('off')
             axes[0, t].imshow(original_odd[t], cmap='gray')
             axes[0, t].axis('off')
-        # A trick to reconstruct the even frames using the odd frames
-        # recon_gen_even = reconstruct_image(generated_even[t, 0], (original_odd[t, 1] + original_odd[t+1, 1]) / 2)
+            plt.imsave(f'patients/{i}/odd/{t}.png', original_odd[t], cmap='gray', vmin=0, vmax=1)
         
         axes[1, t].imshow(original_even[t], cmap='gray')
+        plt.imsave(f'patients/{i}/even/{t}.png', original_even[t], cmap='gray', vmin=0, vmax=1)
         if t < generated_even.shape[0]:
             axes[2, t].imshow(generated_even[t], cmap='gray')
+            plt.imsave(f'patients/{i}/generated_even/{t}.png', generated_even[t], cmap='gray', vmin=0, vmax=1)
         axes[1, t].axis('off')
         axes[2, t].axis('off')
+    
+    if len(original_odd) > len(original_even):
+        axes[0, -1].imshow(original_odd[-1], cmap='gray')
+        axes[0, -1].axis('off')
+        plt.imsave(f'patients/{i}/odd/{len(original_odd)-1}.png', original_odd[-1], cmap='gray', vmin=0, vmax=1)
     
     plt.tight_layout()
     
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
-        print(f"Saved reconstructions to {save_path}")
+        print(f"Saved results to {save_path}")
     
     save_frames(original_odd, generated_even)
 
@@ -293,10 +298,13 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
                 condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                 generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
-            generated_frames.append(generated.cpu().squeeze())
+            if method == 'interpolation':
+                generated_frames.append(generated["main"].cpu().squeeze())
+            else:
+                generated_frames.append(generated.cpu().squeeze())
 
-        for i in range(len(generated_frames)):
-            generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+        # for i in range(len(generated_frames)):
+        #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
         generated_frames = torch.stack(generated_frames)
     
@@ -305,7 +313,12 @@ def visualize_model_predictions(model, evaluator, dataset, device, method, sampl
     evaluation_results = evaluator.benchmark(original_even_frames, generated_frames)
     
     if method == 'interpolation' or method == 'gan':
+        os.makedirs(f'patients/{sample_idx}', exist_ok=True)
+        os.makedirs(f'patients/{sample_idx}/odd', exist_ok=True)
+        os.makedirs(f'patients/{sample_idx}/even', exist_ok=True)
+        os.makedirs(f'patients/{sample_idx}/generated_even', exist_ok=True)
         visualize_interpolations(
+            sample_idx,
             odd_frames.squeeze().cpu().numpy(),
             original_even_frames.numpy(),
             generated_frames.numpy(),
@@ -387,10 +400,13 @@ def evaluate_model_predictions(model, evaluator, dataset, device, method):
                     condition = torch.cat([odd_frames[:, t], odd_frames[:, t+1]], dim=1)
                     generated = sample_diffusion(model, condition, device, odd_frames[:, t].shape)
 
-                generated_frames.append(generated.cpu().squeeze())
+                if method == 'interpolation':
+                    generated_frames.append(generated["main"].cpu().squeeze())
+                else:
+                    generated_frames.append(generated.cpu().squeeze())
 
-            for i in range(len(generated_frames)):
-                generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
+            # for i in range(len(generated_frames)):
+            #     generated_frames[i] = match_contrast(generated_frames[i], odd_frames[0, i])
 
             generated_frames = torch.stack(generated_frames)
         
@@ -399,7 +415,7 @@ def evaluate_model_predictions(model, evaluator, dataset, device, method):
         evaluation_results = evaluator.benchmark_without_visualization(original_even_frames, generated_frames)
 
     if evaluation_results:
-        print(f"Average metrics on dataset ({evaluator.data_count})=> SSIM: {evaluator.dataset_averages['ssim'] / evaluator.data_count} - PSNR: {evaluator.dataset_averages['psnr'] / evaluator.data_count}")
+        print(f"Average metrics on dataset ({evaluator.data_count})=> SSIM: {evaluator.dataset_averages['ssim'] / evaluator.data_count} - PSNR: {evaluator.dataset_averages['psnr'] / evaluator.data_count} - BRISQUE: {evaluator.dataset_averages['brisque'] / evaluator.data_count}")
 
 def plot_losses(train_losses, test_losses, save_path=None):
     plt.figure(figsize=(10, 6))

@@ -6,6 +6,7 @@ import torchvision.models as models
 from utils.utils import reconstruct_image
 from kornia.losses import psnr_loss
 from kornia.filters import sobel
+from torchmetrics import StructuralSimilarityIndexMeasure
 
 # TODO: Daha detaylı bakacak bir loss fonksiyonuna ihtiyacım var
 # TODO: SSIM - Deneniyor Kornia ile de denenebilir -> kornia.losses.ssim_loss
@@ -145,50 +146,127 @@ class PerceptualLoss(nn.Module):
         
         return loss / count
 
+class PerceptualLossNovel(nn.Module):
+    """
+    Lightweight perceptual loss using shallow VGG19 layers for fine detail preservation.
+
+    Uses:
+        - relu1_1  (features[1])
+        - relu2_1  (features[6])
+    """
+    def __init__(self, resize=False):
+        super(PerceptualLossNovel, self).__init__()
+
+        # Load pretrained VGG19
+        vgg = models.vgg19(weights=models.VGG19_Weights.DEFAULT).features
+
+        # Extract only necessary layers
+        self.relu1_1 = nn.Sequential(*[vgg[i] for i in range(0, 2)])   # Conv1 + ReLU
+        self.relu2_1 = nn.Sequential(*[vgg[i] for i in range(2, 7)])   # Conv + ReLU
+
+        # Freeze parameters
+        for param in self.parameters():
+            param.requires_grad = False
+
+        self.resize = resize
+
+    def forward(self, pred, target):
+        # VGG expects 3-channel input; repeat grayscale if needed
+        if pred.shape[1] == 1:
+            pred = pred.repeat(1, 3, 1, 1)
+            target = target.repeat(1, 3, 1, 1)
+
+        # Optional resizing to VGG input size (224x224)
+        if self.resize:
+            pred = F.interpolate(pred, size=(224, 224), mode='bilinear', align_corners=False)
+            target = F.interpolate(target, size=(224, 224), mode='bilinear', align_corners=False)
+
+        # Forward through selected layers
+        pred_relu1_1 = self.relu1_1(pred)
+        target_relu1_1 = self.relu1_1(target)
+        pred_relu2_1 = self.relu2_1(pred_relu1_1)
+        target_relu2_1 = self.relu2_1(target_relu1_1)
+
+        # Compute perceptual losses
+        loss1 = F.l1_loss(pred_relu1_1, target_relu1_1)
+        loss2 = F.l1_loss(pred_relu2_1, target_relu2_1)
+
+        # Average
+        return (loss1 + loss2) * 0.5
+
+def novel_loss(outputs, target, perceptual_model=PerceptualLossNovel(resize=True).to('cuda')):
+    weights = {
+        'l1': 1.0,
+        'ssim': 0.3,
+        'perceptual': 0.1,
+        'gradient': 0.1,
+        'fft': 0.05,
+        'alpha2': 0.3,
+        'alpha3': 0.1,
+    }
+
+    # Main loss terms
+    loss_l1 = nn.L1Loss()(outputs['main'], target)
+    loss_ssim = ssim_loss(outputs['main'], target)
+    loss_perceptual = perceptual_model(outputs['main'], target)
+    loss_grad = gradient_loss(outputs['main'], target)
+    loss_fft = fft_loss(outputs['main'], target)
+
+    l_main = (
+        weights['l1'] * loss_l1 +
+        weights['ssim'] * loss_ssim +
+        weights['perceptual'] * loss_perceptual +
+        weights['gradient'] * loss_grad +
+        weights['fft'] * loss_fft
+    )
+
+    # Deep supervision (only L1 for stability)
+    l_ds2 = weights['alpha2'] * nn.L1Loss()(outputs['ds2'], target)
+    l_ds3 = weights['alpha3'] * nn.L1Loss()(outputs['ds3'], target)
+
+    total = l_main + l_ds2 + l_ds3
+    return total, {"main": l_main.item(), "ds2": l_ds2.item(), "ds3": l_ds3.item()}
+
 def film_loss(pred, target, perceptual_gram, weights = [1, 1, 1]):
     l1 = nn.L1Loss()(pred, target)
     perceptual, gram = perceptual_gram(pred, target)
 
     return weights[0] * l1 + weights[1] * perceptual + weights[2] * gram
 
-def fft3d_loss(fake_seq, real_seq):
+def fft_loss(pred, target):
     """
-    fake_seq and real_seq: shape (B, C=1, T=3, H, W)
+    Compute frequency-domain loss between predicted and target images.
+    Focuses on high-frequency details where fine structures live.
     """
-    fft_fake = torch.fft.fftn(fake_seq, dim=(-3, -2, -1), norm='ortho')
-    fft_real = torch.fft.fftn(real_seq, dim=(-3, -2, -1), norm='ortho')
+    # Apply FFT
+    pred_fft = torch.fft.fft2(pred)
+    target_fft = torch.fft.fft2(target)
 
-    mag_fake = torch.abs(fft_fake)
-    mag_real = torch.abs(fft_real)
+    # Shift zero-frequency component to center
+    pred_fft_shift = torch.fft.fftshift(pred_fft)
+    target_fft_shift = torch.fft.fftshift(target_fft)
 
-    return F.l1_loss(mag_fake, mag_real)
+    # Compute magnitude spectrum (ignore phase)
+    pred_mag = torch.abs(pred_fft_shift)
+    target_mag = torch.abs(target_fft_shift)
+
+    # Normalize to avoid scale dominance
+    pred_mag = pred_mag / (torch.max(pred_mag) + 1e-8)
+    target_mag = target_mag / (torch.max(target_mag) + 1e-8)
+
+    # Use L1 loss in frequency domain
+    return F.l1_loss(pred_mag, target_mag)
 
 def gradient_loss(pred, target):
     # pred and target are of shape (B, H, W)
     # transform them into (B, C, H, W)
-    pred = pred.unsqueeze(1)
-    target = target.unsqueeze(1)
-
-    pred_gradients = sobel(pred)
-    target_gradients = sobel(target)
-
-    gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
-    mse_l = nn.MSELoss()(pred, target)
-
-    return 0.4 * gradient_l + 0.6 * mse_l
-
-def gradient_ssim_loss(pred, target):
-    ssim_l = ssim(pred, target)
-    
-    pred = pred.unsqueeze(1)
-    target = target.unsqueeze(1)
 
     pred_gradients = sobel(pred)
     target_gradients = sobel(target)
 
     gradient_l = nn.MSELoss()(pred_gradients, target_gradients)
 
-    return 0.5 * gradient_l + 0.5 * ssim_l
+    return gradient_l
 
 def create_window(window_size, channel=1):
     def gaussian(window_size, sigma):
@@ -201,68 +279,12 @@ def create_window(window_size, channel=1):
     window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
     return window
 
-def ssim(img1, img2, window_size=11, window=None, size_average=True, full=False, val_range=None):
-    # Add channel dimension
-    # print(img1.shape)
-    # print(img2.shape)
-    # img1 = img1.unsqueeze(1)  # Shape becomes (batch_size, 1, height, width)
-    # img2 = img2.unsqueeze(1)
+def ssim_loss(pred, target):
+    ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to('cuda')
+    score = ssim_metric(pred, target)
+    loss = 1 - score
     
-    # Value range checking
-    if val_range is None:
-        if torch.max(img1) > 128:
-            max_val = 255
-        else:
-            max_val = 1
-        
-        if torch.min(img1) < -0.5:
-            min_val = -1
-        else:
-            min_val = 0
-        L = max_val - min_val
-    else:
-        L = val_range
-
-    padd = window_size // 2
-    (batch_size, channel, height, width) = img1.size()
-    
-    # If window is not provided, create it
-    if window is None:
-        real_size = min(window_size, height, width)
-        window = create_window(real_size, channel=channel).to(img1.device)
-    
-    # Calculate means
-    mu1 = F.conv2d(img1, window, padding=padd, groups=channel)
-    mu2 = F.conv2d(img2, window, padding=padd, groups=channel)
-
-    mu1_sq = mu1.pow(2)
-    mu2_sq = mu2.pow(2)
-    mu1_mu2 = mu1 * mu2
-
-    # Calculate variances and covariance
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=padd, groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=padd, groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=padd, groups=channel) - mu1_mu2
-
-    # Constants for stability
-    C1 = (0.01 * L) ** 2
-    C2 = (0.03 * L) ** 2
-
-    # Calculate SSIM
-    v1 = 2.0 * sigma12 + C2
-    v2 = sigma1_sq + sigma2_sq + C2
-    cs = torch.mean(v1 / v2)
-
-    ssim_map = ((2 * mu1_mu2 + C1) * v1) / ((mu1_sq + mu2_sq + C1) * v2)
-
-    if size_average:
-        ret = ssim_map.mean()
-    else:
-        ret = ssim_map.mean(1).mean(1).mean(1)
-
-    if full:
-        return ret, cs
-    return ret
+    return loss
 
 def combined_loss(pred, target, fourier_weight=0.5):
     # Spatial domain loss

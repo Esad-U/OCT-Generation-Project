@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import logging
 import os
 
-from losses.loss_functions import PerceptualStyleLoss
+from losses.loss_functions import PerceptualStyleLoss, PerceptualLoss
 
 def train_diffusion(model, train_loader, optimizer, loss_fn, device, num_epochs, checkpoint_freq=25, log_interval=10, checkpoint_dir='checkpoints'):
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -182,7 +182,7 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
 
                 if epoch < num_epochs / 2:
                     # For the first half of training, use these loss weights
-                    loss_weights = [1, 1, 1]
+                    loss_weights = [1, 1, 0]
                 else:
                     loss_weights = [1, 0.25, 40]
 
@@ -234,7 +234,7 @@ def train_interpolation(model, train_loader, test_loader, optimizer, loss_fn, de
 
                     if epoch < num_epochs / 2:
                         # For the first half of training, use these loss weights
-                        loss_weights = [1, 1, 1]
+                        loss_weights = [1, 1, 0]
                     else:
                         loss_weights = [1, 0.25, 40]
 
@@ -308,7 +308,7 @@ def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device
             post = sequence[:, 2].unsqueeze(1)
 
             # Generate the fake image(s) using the model
-            central_fake = model(pre, post).unsqueeze(1)
+            central_fake = model(pre, post)["main"].unsqueeze(1)
             # pre_central = model(pre, central).unsqueeze(1)
             # central_post = model(central, post).unsqueeze(1)
             # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
@@ -350,7 +350,7 @@ def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device
                 post = sequence[:, 2].unsqueeze(1)
                 central = sequence[:, 1].unsqueeze(1)
 
-                central_fake = model(pre, post).unsqueeze(1)
+                central_fake = model(pre, post)["main"].unsqueeze(1)
                 # pre_central = model(pre, central).unsqueeze(1)
                 # central_post = model(central, post).unsqueeze(1)
                 # central_fake_2 = model(pre_central, central_post).unsqueeze(1)
@@ -363,9 +363,9 @@ def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device
 
                 if epoch < num_epochs / 2:
                     # For the first half of training, use these loss weights
-                    loss_weights = [1, 1, 1]
+                    loss_weights = [2, 1, 0]
                 else:
-                    loss_weights = [1, 0.25, 40]
+                    loss_weights = [2, 0.25, 40]
 
                 loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
                 # loss = cf_loss + cf2_loss
@@ -417,7 +417,8 @@ def efficient_train_deep_supervision(model, train_loader, test_loader, optimizer
     test_losses = []
     best_test_loss = float('inf')
 
-    perceptual_gram = PerceptualStyleLoss().to(device)
+    # perceptual_gram = PerceptualStyleLoss().to(device)
+    # perceptual = PerceptualLoss()
     
     for epoch in range(num_epochs):
         # ---------------- Training ----------------
@@ -432,31 +433,39 @@ def efficient_train_deep_supervision(model, train_loader, test_loader, optimizer
             central = sequence[:, 1].unsqueeze(1)  # target
             post = sequence[:, 2].unsqueeze(1)  # frame2
 
-            outputs = model(pre, post)  # dict: {"main", "aux2", "aux3"}
-            central_fake = outputs["main"]
+            outputs = model(pre, post)  # dict: {"main", "ds2", "ds3"}
+            # central_fake = outputs["main"]
 
-            # deep supervision losses
-            loss_main = loss_fn(central_fake, central, perceptual_gram, weights=[1,1,1])
+            # # deep supervision losses
+            # if epoch < num_epochs / 2:
+            #     weights = [1, 1, 0]
+            # else:
+            #     weights = [1, 0.25, 40]
+            # loss_main = loss_fn(central_fake, central, perceptual_gram, weights=weights)
 
-            # aux2
-            if "aux2" in outputs:
-                aux2_pred = F.interpolate(outputs["aux2"], size=central.shape[2:], mode="bilinear", align_corners=True)
-                loss_aux2 = F.mse_loss(aux2_pred, central)
-            else:
-                loss_aux2 = 0.0
+            # # ds2
+            # if "aux2" in outputs:
+            #     aux2_pred = F.interpolate(outputs["ds2"], size=central.shape[2:], mode="bilinear", align_corners=True)
+            #     loss_aux2 = F.mse_loss(aux2_pred, central)
+            # else:
+            #     loss_aux2 = 0.0
 
-            # aux3
-            if "aux3" in outputs:
-                aux3_pred = F.interpolate(outputs["aux3"], size=central.shape[2:], mode="bilinear", align_corners=True)
-                loss_aux3 = F.mse_loss(aux3_pred, central)
-            else:
-                loss_aux3 = 0.0
+            # # ds3
+            # if "aux3" in outputs:
+            #     aux3_pred = F.interpolate(outputs["aux3"], size=central.shape[2:], mode="bilinear", align_corners=True)
+            #     loss_aux3 = F.mse_loss(aux3_pred, central)
+            # else:
+            #     loss_aux3 = 0.0
 
-            # combine
-            if epoch < num_epochs / 2:
-                loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
-            else:
-                loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+            # # combine
+            # if epoch < num_epochs / 2:
+            #     loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
+            # else:
+            #     loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+            
+            # loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+
+            loss, separate = loss_fn(outputs, central)
 
             loss.backward()
             optimizer.step()
@@ -482,28 +491,30 @@ def efficient_train_deep_supervision(model, train_loader, test_loader, optimizer
                 post = sequence[:, 2].unsqueeze(1)
 
                 outputs = model(pre, post)
-                central_fake = outputs["main"]
+                # central_fake = outputs["main"]
 
-                loss_main = loss_fn(central_fake, central, perceptual_gram, weights=[1,1,1])
+                # loss_main = loss_fn(central_fake, central, perceptual_gram, weights=[1,1,1])
 
-                # aux2
-                if "ds2" in outputs:
-                    aux2_pred = F.interpolate(outputs["ds2"], size=central.shape[2:], mode="bilinear", align_corners=True)
-                    loss_aux2 = F.mse_loss(aux2_pred, central)
-                else:
-                    loss_aux2 = 0.0
+                # # aux2
+                # if "ds2" in outputs:
+                #     aux2_pred = F.interpolate(outputs["ds2"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                #     loss_aux2 = F.mse_loss(aux2_pred, central)
+                # else:
+                #     loss_aux2 = 0.0
 
-                # aux3
-                if "ds3" in outputs:
-                    aux3_pred = F.interpolate(outputs["ds3"], size=central.shape[2:], mode="bilinear", align_corners=True)
-                    loss_aux3 = F.mse_loss(aux3_pred, central)
-                else:
-                    loss_aux3 = 0.0
+                # # aux3
+                # if "ds3" in outputs:
+                #     aux3_pred = F.interpolate(outputs["ds3"], size=central.shape[2:], mode="bilinear", align_corners=True)
+                #     loss_aux3 = F.mse_loss(aux3_pred, central)
+                # else:
+                #     loss_aux3 = 0.0
 
-                if epoch < num_epochs / 2:
-                    loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
-                else:
-                    loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+                # if epoch < num_epochs / 2:
+                #     loss = loss_main + 0.4 * loss_aux2 + 0.2 * loss_aux3
+                # else:
+                #     loss = loss_main + 0.2 * loss_aux2 + 0.1 * loss_aux3
+
+                loss, separate = loss_fn(outputs, central)
 
                 test_loss += loss.item()
         

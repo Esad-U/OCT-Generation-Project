@@ -2,11 +2,13 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import logging
 import random
+import os
 
 from functools import partial
-
-from .generic import SelfAttention, ResidualBlock
+from torchvision.utils import make_grid, save_image
 
 # -------------------------
 # Utilities
@@ -27,6 +29,61 @@ def sinusoidal_time_embedding(timesteps, dim):
 def default(device=None, dtype=None, val=None):
     if val is None: return None
     return val.to(device=device, dtype=dtype)
+
+# -------------------------
+# Building blocks (reuse style from earlier)
+# -------------------------
+class SelfAttention(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.query = nn.Conv2d(in_channels, in_channels // 8, 1)
+        self.key = nn.Conv2d(in_channels, in_channels // 8, 1)
+        self.value = nn.Conv2d(in_channels, in_channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+    def forward(self, x):
+        B, C, H, W = x.shape
+        q = self.query(x).view(B, -1, H*W)
+        k = self.key(x).view(B, -1, H*W)
+        v = self.value(x).view(B, -1, H*W)
+        attn = torch.bmm(q.permute(0,2,1), k)
+        attn = F.softmax(attn / (q.size(1)**0.5), dim=-1)
+        out = torch.bmm(v, attn.permute(0,2,1))
+        out = out.view(B, C, H, W)
+        return self.gamma * out + x
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, time_emb_dim=None):
+        super().__init__()
+        self.need_proj = (in_ch != out_ch)
+        self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)
+        self.norm1 = nn.InstanceNorm2d(out_ch, affine=True)
+        self.act = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1)
+        self.norm2 = nn.InstanceNorm2d(out_ch, affine=True)
+        if self.need_proj:
+            self.proj = nn.Conv2d(in_ch, out_ch, 1)
+        # optional time embedding -> affine modulation
+        if time_emb_dim is not None:
+            self.time_mlp = nn.Sequential(
+                nn.Linear(time_emb_dim, out_ch),
+                nn.ReLU(),
+                nn.Linear(out_ch, out_ch)
+            )
+        else:
+            self.time_mlp = None
+
+    def forward(self, x, t_emb=None):
+        h = self.conv1(x)
+        h = self.norm1(h)
+        h = self.act(h)
+        if self.time_mlp is not None and t_emb is not None:
+            # t_emb: (B, dim) -> (B, out_ch) -> (B, out_ch, 1,1)
+            shift = self.time_mlp(t_emb).unsqueeze(-1).unsqueeze(-1)
+            h = h + shift
+        h = self.conv2(h)
+        h = self.norm2(h)
+        res = self.proj(x) if self.need_proj else x
+        return self.act(h + res)
 
 # -------------------------
 # UNet denoiser conditioned on two frames
@@ -190,6 +247,9 @@ class GaussianDiffusion:
         cond_for_model = cond_frames.clone()
         cond_for_model[do_uncond == 1] = 0.0
 
+        print(x_t.shape)
+        print(cond_for_model.shape)
+
         # model predicts noise
         eps_pred = self.model(x_t, cond_for_model, t)
 
@@ -267,9 +327,9 @@ def diffusion_train_step(batch, diffusion: GaussianDiffusion, optim, device,
     diffusion: GaussianDiffusion object
     optim: optimizer for diffusion.model.parameters()
     """
-    frame1 = batch[:, 0].to(device)  # (B,1,H,W)
-    frame2 = batch[:, 2].to(device)
-    target = batch[:, 1].to(device)
+    frame1 = batch["frame1"].to(device)
+    frame2 = batch["frame2"].to(device)
+    target = batch["target"].to(device)
 
     B = target.shape[0]
     t = torch.randint(0, diffusion.timesteps, (B,), device=device).long()
@@ -286,14 +346,22 @@ def diffusion_train_step(batch, diffusion: GaussianDiffusion, optim, device,
 # ----------------------
 # Training loop
 # ----------------------
+# configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("train_diffusion.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 def train_diffusion(
-    image_dir,
-    logdir="logs/diffusion_interp",
+    dataloader,
     ckptdir="checkpoints/diffusion_interp",
     epochs=100,
-    batch_size=16,
     lr=2e-4,
-    num_workers=4,
     img_size=128,
     timesteps=1000,
     device="cuda",
@@ -301,14 +369,6 @@ def train_diffusion(
     guidance=2.0,
     l1_weight=0.0,
 ):
-    os.makedirs(logdir, exist_ok=True)
-    os.makedirs(ckptdir, exist_ok=True)
-    writer = SummaryWriter(logdir)
-
-    # dataset & loader
-    dataset = EfficientDataset(image_dir=image_dir, image_size=img_size, window_size=3)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                            num_workers=num_workers, pin_memory=True, drop_last=True)
 
     # model & diffusion
     model = ConditionalUNet(base_ch=48, in_channels=3, out_channels=1).to(device)
@@ -317,20 +377,29 @@ def train_diffusion(
     optim = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999))
 
     global_step = 0
+    train_losses, mse_losses, l1_losses = [], [], []
+
     for epoch in range(epochs):
         model.train()
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
-        for batch in pbar:
-            seq = batch  # (B,3,H,W)
-            f1, tgt, f2 = seq[:,0:1], seq[:,1:2], seq[:,2:3]  # all (B,1,H,W)
+        logger.info(f"Epoch {epoch+1}/{epochs}")
+
+        for batch_idx, sequence in enumerate(dataloader):
+            f1, tgt, f2 = sequence[:, 0], sequence[:, 1], sequence[:, 2]  # all (B,1,H,W)
             batch_dict = {"frame1": f1, "frame2": f2, "target": tgt}
 
             loss, metrics = diffusion_train_step(batch_dict, diffusion, optim, device, l1_weight=l1_weight)
 
-            pbar.set_postfix(loss=loss, mse=metrics["mse"], l1=metrics["l1"])
-            writer.add_scalar("train/loss", loss, global_step)
-            writer.add_scalar("train/mse", metrics["mse"], global_step)
-            writer.add_scalar("train/l1", metrics["l1"], global_step)
+            # track metrics
+            train_losses.append(loss)
+            mse_losses.append(metrics["mse"])
+            l1_losses.append(metrics["l1"])
+
+            if batch_idx % 50 == 0:  # log every N steps
+                logger.info(
+                    f"Epoch {epoch+1}/{epochs}, Step {batch_idx}/{len(dataloader)} "
+                    f"| Loss={loss:.4f} | MSE={metrics['mse']:.4f} | L1={metrics['l1']:.4f}"
+                )
+
             global_step += 1
 
         # save checkpoint
@@ -341,22 +410,35 @@ def train_diffusion(
             "epoch": epoch,
             "global_step": global_step,
         }, ckpt_path)
+        logger.info(f"Checkpoint saved at {ckpt_path}")
 
         # periodic sampling
         if (epoch+1) % sample_interval == 0:
             model.eval()
             with torch.no_grad():
                 seq = next(iter(dataloader))
-                f1, tgt, f2 = seq[:,0:1].to(device), seq[:,1:2].to(device), seq[:,2:3].to(device)
+                f1, tgt, f2 = seq[:, 0].to(device), seq[:, 1].to(device), seq[:, 2].to(device)
                 cond = torch.cat([f1, f2], dim=1)
-                samples = diffusion.sample(cond, shape=(f1.size(0),1,img_size,img_size),
-                                           guidance_weight=guidance, device=device)
+                samples = diffusion.sample(
+                    cond, shape=(f1.size(0),1,img_size,img_size),
+                    guidance_weight=guidance, device=device
+                )
 
                 # make grid: row1=f1, row2=tgt, row3=f2, row4=generated
                 grid = torch.cat([f1, tgt, f2, samples], dim=0)
                 grid = make_grid(grid, nrow=f1.size(0), normalize=True)
-                save_path = os.path.join(logdir, f"samples_epoch{epoch+1}.png")
+                save_path = os.path.join(ckptdir, f"samples_epoch{epoch+1}.png")
                 save_image(grid, save_path)
-                writer.add_image("samples", grid, epoch+1)
+                logger.info(f"Saved sample grid at {save_path}")
 
-    writer.close()
+    # plot final training curves
+    plt.figure(figsize=(10,6))
+    plt.plot(train_losses, label="Total Loss", alpha=0.7)
+    plt.plot(mse_losses, label="MSE Loss", alpha=0.7)
+    plt.plot(l1_losses, label="L1 Loss", alpha=0.7)
+    plt.xlabel("Training Steps")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.title("Diffusion Training Losses")
+    plt.savefig(os.path.join(ckptdir, "loss_curve.png"))
+    logger.info("Saved training loss plot at loss_curve.png")
