@@ -157,45 +157,31 @@ class UNetUpsample(nn.Module):
             "main": out,
         }
 
-class UNetUpsampleTransDecoder(nn.Module):
+class UNetEncoderAttn(nn.Module):
     def __init__(self, input_channels, hidden_channels):
         super().__init__()
+        self.input_channels = input_channels * 2 
         
-        # Input is two surrounding frames concatenated
-        self.input_channels = input_channels * 2  # *2 for two frames, *2 for complex input
-        
-        # Encoder
         self.inc = self._double_conv(self.input_channels, hidden_channels)
+        
+        # Down1: High resolution -> NO Attention (Too expensive)
         self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
-        self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
-        self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
         
-        # Bridge with attention
-        self.bridge = nn.Sequential(
-            self._double_conv(hidden_channels * 8, hidden_channels * 8),
-            SelfAttention(hidden_channels * 8)
-        )
+        # Down2 & Down3: Lower resolution -> WITH Attention
+        self.down2 = self._down_block_with_attn(hidden_channels * 2, hidden_channels * 4)
+        self.down3 = self._down_block_with_attn(hidden_channels * 4, hidden_channels * 8)
         
-        # Decoder with upsampling instead of transposed convolutions
+        self.bridge = self._double_conv(hidden_channels * 8, hidden_channels * 8)
+        
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv_up3 = nn.Sequential(
-            self._double_conv(hidden_channels * 8 + hidden_channels * 4, hidden_channels * 4),
-            SelfAttention(hidden_channels * 4)
-        )
+        self.conv_up3 = self._double_conv(hidden_channels * 8 + hidden_channels * 4, hidden_channels * 4)
         
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv_up2 = nn.Sequential(
-            self._double_conv(hidden_channels * 4 + hidden_channels * 2, hidden_channels * 2),
-            SelfAttention(hidden_channels * 2)
-        )
+        self.conv_up2 = self._double_conv(hidden_channels * 4 + hidden_channels * 2, hidden_channels * 2)
         
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv_up1 = nn.Sequential(
-            self._double_conv(hidden_channels * 2 + hidden_channels, hidden_channels),
-            SelfAttention(hidden_channels)
-        )
+        self.conv_up1 = self._double_conv(hidden_channels * 2 + hidden_channels, hidden_channels)
         
-        # Output layer (2 channels for complex output)
         self.outc = nn.Conv2d(hidden_channels, input_channels, kernel_size=1)
         
     def _double_conv(self, in_channels, out_channels):
@@ -213,35 +199,98 @@ class UNetUpsampleTransDecoder(nn.Module):
             nn.MaxPool2d(2),
             self._double_conv(in_channels, out_channels)
         )
+
+    def _down_block_with_attn(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.MaxPool2d(2),
+            self._double_conv(in_channels, out_channels),
+            SelfAttention(out_channels)
+        )
     
     def forward(self, frame1, frame2):
-        # Concatenate input frames
         x = torch.cat([frame1, frame2], dim=1)
+        x1 = self.inc(x)
+        x2 = self.down1(x1) # No Attn
+        x3 = self.down2(x2) # Attn
+        x4 = self.down3(x3) # Attn
         
-        # Encoder
+        x4 = self.bridge(x4)
+        
+        x = self.up3(x4)
+        x = self.conv_up3(torch.cat([x, x3], dim=1))
+        x = self.up2(x)
+        x = self.conv_up2(torch.cat([x, x2], dim=1))
+        x = self.up1(x)
+        x = self.conv_up1(torch.cat([x, x1], dim=1))
+        
+        return {"main": nn.Tanh()(self.outc(x))}
+
+class UNetDecoderAttn(nn.Module):
+    def __init__(self, input_channels, hidden_channels):
+        super().__init__()
+        self.input_channels = input_channels * 2
+        
+        self.inc = self._double_conv(self.input_channels, hidden_channels)
+        self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
+        self.down2 = self._down_block(hidden_channels * 2, hidden_channels * 4)
+        self.down3 = self._down_block(hidden_channels * 4, hidden_channels * 8)
+        
+        self.bridge = self._double_conv(hidden_channels * 8, hidden_channels * 8)
+        
+        # UP3 & UP2: Deep layers -> WITH Attention
+        self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv_up3_attn = self._up_block_with_attn(hidden_channels * 8 + hidden_channels * 4, hidden_channels * 4)
+        
+        self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv_up2_attn = self._up_block_with_attn(hidden_channels * 4 + hidden_channels * 2, hidden_channels * 2)
+        
+        # UP1: High resolution -> NO Attention (Too expensive)
+        self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv_up1 = self._double_conv(hidden_channels * 2 + hidden_channels, hidden_channels)
+        
+        self.outc = nn.Conv2d(hidden_channels, input_channels, kernel_size=1)
+        
+    def _double_conv(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+    
+    def _down_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.MaxPool2d(2),
+            self._double_conv(in_channels, out_channels)
+        )
+
+    def _up_block_with_attn(self, in_channels, out_channels):
+        return nn.Sequential(
+            self._double_conv(in_channels, out_channels),
+            SelfAttention(out_channels)
+        )
+    
+    def forward(self, frame1, frame2):
+        x = torch.cat([frame1, frame2], dim=1)
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         
-        # Bridge
         x4 = self.bridge(x4)
         
-        # Decoder with skip connections
         x = self.up3(x4)
-        x = self.conv_up3(torch.cat([x, x3], dim=1))
+        x = self.conv_up3_attn(torch.cat([x, x3], dim=1)) # Attn
         
         x = self.up2(x)
-        x = self.conv_up2(torch.cat([x, x2], dim=1))
+        x = self.conv_up2_attn(torch.cat([x, x2], dim=1)) # Attn
         
         x = self.up1(x)
-        x = self.conv_up1(torch.cat([x, x1], dim=1))
+        x = self.conv_up1(torch.cat([x, x1], dim=1)) # No Attn
         
-        out = nn.Tanh()(self.outc(x).squeeze(1))
-
-        return {
-            "main": out,
-        }
+        return {"main": nn.Tanh()(self.outc(x))}
 
 class UNetUpsampleEnhanced(nn.Module):
     def __init__(self, hidden_channels=64, in_channels=2, out_channels=1, dropout=0.3):
