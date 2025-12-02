@@ -363,9 +363,9 @@ def efficient_train(model, train_loader, test_loader, optimizer, loss_fn, device
 
                 if epoch < num_epochs / 2:
                     # For the first half of training, use these loss weights
-                    loss_weights = [2, 1, 0]
+                    loss_weights = [1, 1, 0]
                 else:
-                    loss_weights = [2, 0.25, 40]
+                    loss_weights = [1, 0.25, 40]
 
                 loss = loss_fn(central_fake, central, perceptual_gram, weights=loss_weights)
                 # loss = cf_loss + cf2_loss

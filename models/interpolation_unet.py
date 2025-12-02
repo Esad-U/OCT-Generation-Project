@@ -158,13 +158,14 @@ class UNetUpsample(nn.Module):
         }
 
 class UNetEncoderAttn(nn.Module):
-    def __init__(self, input_channels, hidden_channels):
+    def __init__(self, input_channels=1, hidden_channels=48):
         super().__init__()
+        # input_channels defaults to 1 to prevent initialization errors if arg is missing
         self.input_channels = input_channels * 2 
         
         self.inc = self._double_conv(self.input_channels, hidden_channels)
         
-        # Down1: High resolution -> NO Attention (Too expensive)
+        # Down1: High resolution -> NO Attention
         self.down1 = self._down_block(hidden_channels, hidden_channels * 2)
         
         # Down2 & Down3: Lower resolution -> WITH Attention
@@ -210,9 +211,9 @@ class UNetEncoderAttn(nn.Module):
     def forward(self, frame1, frame2):
         x = torch.cat([frame1, frame2], dim=1)
         x1 = self.inc(x)
-        x2 = self.down1(x1) # No Attn
-        x3 = self.down2(x2) # Attn
-        x4 = self.down3(x3) # Attn
+        x2 = self.down1(x1) 
+        x3 = self.down2(x2) 
+        x4 = self.down3(x3) 
         
         x4 = self.bridge(x4)
         
@@ -223,10 +224,14 @@ class UNetEncoderAttn(nn.Module):
         x = self.up1(x)
         x = self.conv_up1(torch.cat([x, x1], dim=1))
         
-        return {"main": nn.Tanh()(self.outc(x))}
+        # RESTORED .squeeze(1) to match your training loop expectation
+        # Output shape becomes [Batch, Height, Width]
+        out = nn.Tanh()(self.outc(x).squeeze(1))
+        
+        return {"main": out}
 
 class UNetDecoderAttn(nn.Module):
-    def __init__(self, input_channels, hidden_channels):
+    def __init__(self, input_channels=1, hidden_channels=48):
         super().__init__()
         self.input_channels = input_channels * 2
         
@@ -237,14 +242,12 @@ class UNetDecoderAttn(nn.Module):
         
         self.bridge = self._double_conv(hidden_channels * 8, hidden_channels * 8)
         
-        # UP3 & UP2: Deep layers -> WITH Attention
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_up3_attn = self._up_block_with_attn(hidden_channels * 8 + hidden_channels * 4, hidden_channels * 4)
         
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_up2_attn = self._up_block_with_attn(hidden_channels * 4 + hidden_channels * 2, hidden_channels * 2)
         
-        # UP1: High resolution -> NO Attention (Too expensive)
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_up1 = self._double_conv(hidden_channels * 2 + hidden_channels, hidden_channels)
         
@@ -282,15 +285,18 @@ class UNetDecoderAttn(nn.Module):
         x4 = self.bridge(x4)
         
         x = self.up3(x4)
-        x = self.conv_up3_attn(torch.cat([x, x3], dim=1)) # Attn
+        x = self.conv_up3_attn(torch.cat([x, x3], dim=1))
         
         x = self.up2(x)
-        x = self.conv_up2_attn(torch.cat([x, x2], dim=1)) # Attn
+        x = self.conv_up2_attn(torch.cat([x, x2], dim=1))
         
         x = self.up1(x)
-        x = self.conv_up1(torch.cat([x, x1], dim=1)) # No Attn
+        x = self.conv_up1(torch.cat([x, x1], dim=1))
         
-        return {"main": nn.Tanh()(self.outc(x))}
+        # RESTORED .squeeze(1) here as well
+        out = nn.Tanh()(self.outc(x).squeeze(1))
+
+        return {"main": out}
 
 class UNetUpsampleEnhanced(nn.Module):
     def __init__(self, hidden_channels=64, in_channels=2, out_channels=1, dropout=0.3):

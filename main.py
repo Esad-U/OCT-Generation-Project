@@ -7,11 +7,12 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced, UNetUpsampleTransDecoder
+from models.interpolation_unet import InterpolationUNet, UNetUpsample, UNetUpsampleEnhanced
 from models.octgan import OCTGAN
 from data.fourier_dataset import ComplexFourierDataset
 from data.regular_dataset import RegularDataset
 from data.efficient_dataset import EfficientDataset
+from data.patchwise_dataset import PatchwiseDataset
 from losses.loss_functions import (
     separate_loss, combined_loss, interpolation_loss,
     gradient_loss, PerceptualLoss, film_loss, novel_loss
@@ -29,15 +30,30 @@ DATASET_PATH = '/mnt/storage/Data/OCT'
 
 def get_dataset(method, image_size):
     if method in ['interpolation', 'gan', 'diffusion']:
-        train_dataset = EfficientDataset(
-            image_dir=f'{DATASET_PATH}/train_all',
-            image_size=image_size,
-            window_size=3
+        # train_dataset = EfficientDataset(
+        #     image_dir=f'{DATASET_PATH}/train_all',
+        #     image_size=image_size,
+        #     window_size=3
+        # )
+        # test_dataset = EfficientDataset(
+        #     image_dir=f'{DATASET_PATH}/validation_all',
+        #     image_size=image_size,
+        #     window_size=3
+        # )
+        # For Training
+        train_dataset = PatchwiseDataset(
+            image_dir=f'{DATASET_PATH}/train_all', 
+            patch_size=64, 
+            train_mode=True,       # <--- Activates patching & black skipping
+            background_threshold=0.05
         )
-        test_dataset = EfficientDataset(
-            image_dir=f'{DATASET_PATH}/validation_all',
-            image_size=image_size,
-            window_size=3
+
+        # For Validation/Inference
+        test_dataset = PatchwiseDataset(
+            image_dir=f'{DATASET_PATH}/validation_all', 
+            patch_size=64,
+            train_mode=True,      # <--- Activates full image & padding
+            background_threshold=0.05
         )
     else:
         train_dataset = ComplexFourierDataset(
@@ -51,10 +67,9 @@ def get_dataset(method, image_size):
     return train_dataset, test_dataset
 
 
-def get_model(method, hidden_channels, device, dataset=None):
+def get_model(method, hidden_channels, image_size, device, dataset=None):
     if method == 'interpolation':
-        # return UNetUpsample(input_channels=1, hidden_channels=hidden_channels).to(device)
-        return UNetUpsampleTransDecoder(input_channels=1, hidden_channels=hidden_channels).to(device)
+        return UNetUpsample(input_channels=1, hidden_channels=hidden_channels).to(device)
         # return UNetUpsampleEnhanced(hidden_channels=hidden_channels).to(device)
     elif method == 'gan':
         return OCTGAN(g_hidden=hidden_channels)
@@ -93,7 +108,7 @@ def train_main(args):
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    model = get_model(args.method, args.hidden_channels, device, train_dataset)
+    model = get_model(args.method, args.hidden_channels, args.image_size, device, train_dataset)
     if args.method == 'interpolation':
         optimizer = get_optimizer(args.optimizer, model, args.lr)
     loss_fn = get_loss_fn(args.loss, device)
@@ -179,7 +194,7 @@ def evaluate_main(args):
 
     checkpoint_dir = args.ckpt or 'checkpoints/latest'
     checkpoint_files = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
-    checkpoint_file = [i for i in checkpoint_files if '100' in i][0]
+    checkpoint_file = [i for i in checkpoint_files if '200' in i][0]
     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file) if checkpoint_files else None
 
     if not checkpoint_path or not os.path.exists(checkpoint_path):
@@ -197,7 +212,7 @@ def evaluate_main(args):
     evaluator = Evaluator()
     for i in range(5):
         visualize_dataset_sample(dataset, args.method, sample_idx=i, save_path=f'visualizations/sample_{i}')
-    for i in range(7):
+    for i in range(10):
         visualize_model_predictions(model, evaluator, dataset, device, args.method, sample_idx=i)
     evaluate_model_predictions(model, evaluator, dataset, device, args.method)
 
